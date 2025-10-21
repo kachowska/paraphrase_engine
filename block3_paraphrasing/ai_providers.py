@@ -145,7 +145,7 @@ class AnthropicProvider(AIProvider):
 class GoogleGeminiProvider(AIProvider):
     """Google Gemini provider"""
     
-    def __init__(self, api_key: str, model: str = "gemini-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-1.5-flash"):
         super().__init__(api_key, model, "Google Gemini")
     
     def _initialize_client(self):

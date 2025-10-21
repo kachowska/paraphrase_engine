@@ -35,4 +35,4 @@ pip install -r requirements.txt
 
 # Run the application
 echo "Starting Paraphrase Engine..."
-python -m paraphrase_engine.main
+python3 main.py

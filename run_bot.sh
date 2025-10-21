@@ -3,7 +3,6 @@
 # Paraphrase Engine Bot Manager Script
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║         Paraphrase Engine v1.0 - Bot Manager                ║"
@@ -12,7 +11,7 @@ echo ""
 
 # Function to check if bot is running
 check_running() {
-    if pgrep -f "paraphrase_engine.main" > /dev/null; then
+    if pgrep -f "main.py" > /dev/null; then
         return 0
     else
         return 1
@@ -22,11 +21,11 @@ check_running() {
 # Function to stop bot
 stop_bot() {
     echo "🛑 Stopping bot..."
-    pkill -f "paraphrase_engine.main"
+    pkill -f "main.py"
     sleep 2
     if check_running; then
         echo "⚠️  Force stopping..."
-        pkill -9 -f "paraphrase_engine.main"
+        pkill -9 -f "main.py"
         sleep 1
     fi
     echo "✅ Bot stopped"
@@ -42,8 +41,8 @@ start_bot() {
     fi
     
     echo "🚀 Starting bot..."
-    cd "$PARENT_DIR"
-    python3 -m paraphrase_engine.main
+    cd "$SCRIPT_DIR"
+    python3 main.py
 }
 
 # Function to check status
@@ -52,7 +51,7 @@ status_bot() {
         echo "✅ Bot is RUNNING"
         echo ""
         echo "Process details:"
-        ps aux | grep "paraphrase_engine.main" | grep -v grep
+        ps aux | grep "main.py" | grep -v grep
     else
         echo "❌ Bot is NOT running"
         echo ""

@@ -171,7 +171,7 @@ class SystemLogger:
             "user_name": user_name
         }
         
-        self.structured_logger.info("task_started", **log_data)
+        self.structured_logger.info("task_started", chat_id=chat_id, user_name=user_name)
         await self._write_local_log(self.operations_log, log_data)
     
     async def log_task_created(self, task_id: str, chat_id: int, num_fragments: int):
@@ -184,7 +184,7 @@ class SystemLogger:
             "num_fragments": num_fragments
         }
         
-        self.structured_logger.info("task_created", **log_data)
+        self.structured_logger.info("task_created", task_id=task_id, chat_id=chat_id, num_fragments=num_fragments)
         await self._write_local_log(self.operations_log, log_data)
         
         # Log to Google Sheets
@@ -209,7 +209,7 @@ class SystemLogger:
             "num_fragments": num_fragments
         }
         
-        self.structured_logger.info("task_completed", **log_data)
+        self.structured_logger.info("task_completed", task_id=task_id, chat_id=chat_id, num_fragments=num_fragments)
         await self._write_local_log(self.operations_log, log_data)
     
     # File operations logging
@@ -224,7 +224,7 @@ class SystemLogger:
             "file_size_mb": file_size_mb
         }
         
-        self.structured_logger.info("file_received", **log_data)
+        self.structured_logger.info("file_received", chat_id=chat_id, file_name=file_name, file_size_mb=file_size_mb)
         await self._write_local_log(self.operations_log, log_data)
     
     async def log_fragments_received(self, chat_id: int, num_fragments: int):
@@ -236,7 +236,7 @@ class SystemLogger:
             "num_fragments": num_fragments
         }
         
-        self.structured_logger.info("fragments_received", **log_data)
+        self.structured_logger.info("fragments_received", chat_id=chat_id, num_fragments=num_fragments)
         await self._write_local_log(self.operations_log, log_data)
     
     # Paraphrasing operations logging
@@ -256,7 +256,7 @@ class SystemLogger:
             "text_length": text_length
         }
         
-        self.structured_logger.info("paraphrase_start", **log_data)
+        self.structured_logger.info("paraphrase_start", task_id=task_id, fragment_index=fragment_index, text_length=text_length)
         await self._write_local_log(self.operations_log, log_data)
     
     async def log_paraphrase_complete(
@@ -278,7 +278,7 @@ class SystemLogger:
             "paraphrased_length": len(paraphrased_text)
         }
         
-        self.structured_logger.info("paraphrase_complete", **log_data)
+        self.structured_logger.info("paraphrase_complete", task_id=task_id, fragment_index=fragment_index, provider_used=provider_used)
         await self._write_local_log(self.operations_log, log_data)
         
         # Save results for quality analysis
@@ -319,7 +319,7 @@ class SystemLogger:
             "progress_percent": (fragment_index / total_fragments) * 100
         }
         
-        self.structured_logger.info("fragment_processed", **log_data)
+        self.structured_logger.info("fragment_processed", task_id=task_id, fragment_index=fragment_index, total_fragments=total_fragments)
         await self._write_local_log(self.operations_log, log_data)
     
     # Document operations logging
@@ -344,7 +344,7 @@ class SystemLogger:
             "success_rate": (replaced_fragments / total_fragments * 100) if total_fragments > 0 else 0
         }
         
-        self.structured_logger.info("document_processed", **log_data)
+        self.structured_logger.info("document_processed", source_path=source_path, output_path=output_path, total_fragments=total_fragments)
         await self._write_local_log(self.operations_log, log_data)
     
     async def log_fragment_replaced(
@@ -363,7 +363,7 @@ class SystemLogger:
             "length_change_percent": ((paraphrased_length - original_length) / original_length * 100) if original_length > 0 else 0
         }
         
-        self.structured_logger.debug("fragment_replaced", **log_data)
+        self.structured_logger.debug("fragment_replaced", fragment_index=fragment_index, original_length=original_length, paraphrased_length=paraphrased_length)
         await self._write_local_log(self.operations_log, log_data)
     
     async def log_fragment_not_found(self, fragment_index: int, fragment_text: str):
@@ -375,7 +375,7 @@ class SystemLogger:
             "fragment_preview": fragment_text
         }
         
-        self.structured_logger.warning("fragment_not_found", **log_data)
+        self.structured_logger.warning("fragment_not_found", fragment_index=fragment_index, fragment_preview=fragment_text[:100])
         await self._write_local_log(self.operations_log, log_data)
     
     # Error logging
@@ -391,7 +391,7 @@ class SystemLogger:
             "severity": "high"
         }
         
-        self.structured_logger.error("error_occurred", **log_data)
+        self.structured_logger.error("error_occurred", chat_id=chat_id, operation=operation, error_message=error_message)
         await self._write_local_log(self.errors_log, log_data)
         
         # Log to Google Sheets
@@ -424,7 +424,7 @@ class SystemLogger:
         }
         
         level = "info" if success else "warning"
-        getattr(self.structured_logger, level)("api_call", **log_data)
+        getattr(self.structured_logger, level)("api_call", provider=provider, success=success, duration_seconds=duration_seconds, error=error)
         await self._write_local_log(self.operations_log, log_data)
         
         # Log to Google Sheets
