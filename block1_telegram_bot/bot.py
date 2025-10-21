@@ -281,7 +281,6 @@ class TelegramBotInterface:
             states={
                 WAITING_FOR_FILE: [
                     MessageHandler(filters.Document.ALL, self.handle_document),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_document)
                 ],
                 WAITING_FOR_FRAGMENTS: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_fragments)
