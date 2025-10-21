@@ -50,11 +50,34 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = 'utf-8'
         case_sensitive = False
+        extra = 'ignore'
 
 
 # Create settings instance
-settings = Settings()
+def get_settings():
+    """Get settings with proper .env file location"""
+    import sys
+    from pathlib import Path
+    
+    # Find .env file
+    current_dir = Path(__file__).parent.parent
+    env_file = current_dir / ".env"
+    
+    if env_file.exists():
+        return Settings(_env_file=str(env_file))
+    else:
+        # Try to use environment variables only
+        try:
+            return Settings()
+        except:
+            raise FileNotFoundError(
+                f".env file not found at {env_file}. "
+                "Please copy env.example to .env and configure it."
+            )
+
+settings = get_settings()
 
 # Ensure temp files directory exists
 os.makedirs(settings.temp_files_dir, exist_ok=True)
