@@ -9,9 +9,17 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-import gspread
-from google.oauth2.service_account import Credentials
 import structlog
+
+# Optional imports for Google Sheets
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    gspread = None
+    Credentials = None
 
 from ..config import settings
 
@@ -56,6 +64,11 @@ class SystemLogger:
     
     def _initialize_google_sheets(self):
         """Initialize Google Sheets connection for logging"""
+        if not GSPREAD_AVAILABLE:
+            logger.info("Google Sheets not available (gspread not installed), using local logging only")
+            self.google_sheets_client = None
+            return
+            
         try:
             if settings.google_sheets_credentials_path and settings.google_sheets_spreadsheet_id:
                 # Load credentials
@@ -77,7 +90,7 @@ class SystemLogger:
                 
                 logger.info("Google Sheets logging initialized")
             else:
-                logger.warning("Google Sheets credentials not configured, using local logging only")
+                logger.info("Google Sheets credentials not configured, using local logging only")
                 
         except Exception as e:
             logger.error(f"Failed to initialize Google Sheets: {e}")
