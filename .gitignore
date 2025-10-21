@@ -47,6 +47,8 @@ logs/
 paraphrase_engine.db
 credentials/
 google-sheets-key.json
+credentials.json
+token.json
 *.docx
 !test_document.docx
 

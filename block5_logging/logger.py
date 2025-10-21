@@ -71,14 +71,38 @@ class SystemLogger:
             
         try:
             if settings.google_sheets_credentials_path and settings.google_sheets_spreadsheet_id:
-                # Load credentials
-                creds = Credentials.from_service_account_file(
-                    settings.google_sheets_credentials_path,
-                    scopes=['https://www.googleapis.com/auth/spreadsheets']
-                )
-                
-                # Initialize client
-                self.google_sheets_client = gspread.authorize(creds)
+                # Try OAuth credentials first (for user-based authentication)
+                try:
+                    from google.auth.transport.requests import Request
+                    from google.oauth2.credentials import Credentials as OAuthCredentials
+                    
+                    # Check if token.json exists (OAuth flow)
+                    token_file = Path(settings.google_sheets_credentials_path).parent / "token.json"
+                    if token_file.exists():
+                        creds = OAuthCredentials.from_authorized_user_file(
+                            str(token_file),
+                            scopes=['https://www.googleapis.com/auth/spreadsheets']
+                        )
+                        
+                        # Refresh if needed
+                        if not creds.valid:
+                            if creds.expired and creds.refresh_token:
+                                creds.refresh(Request())
+                        
+                        # Initialize client with OAuth credentials
+                        self.google_sheets_client = gspread.authorize(creds)
+                    else:
+                        raise FileNotFoundError("OAuth token not found")
+                        
+                except (FileNotFoundError, ImportError):
+                    # Fall back to service account credentials
+                    creds = Credentials.from_service_account_file(
+                        settings.google_sheets_credentials_path,
+                        scopes=['https://www.googleapis.com/auth/spreadsheets']
+                    )
+                    
+                    # Initialize client with service account credentials
+                    self.google_sheets_client = gspread.authorize(creds)
                 
                 # Open spreadsheet
                 spreadsheet = self.google_sheets_client.open_by_key(
