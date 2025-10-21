@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  paraphrase-engine:
+    build: .
+    container_name: paraphrase-engine
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persistent storage for temp files and logs
+      - ./temp_files:/app/temp_files
+      - ./logs:/app/logs
+      # Google Sheets credentials (if using file-based auth)
+      - ./credentials:/app/credentials:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+    networks:
+      - paraphrase-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+  
+  # Optional: Redis for task queue (if needed in future)
+  redis:
+    image: redis:7-alpine
+    container_name: paraphrase-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - paraphrase-network
+    command: redis-server --appendonly yes
+
+networks:
+  paraphrase-network:
+    driver: bridge
+
+volumes:
+  redis-data:
