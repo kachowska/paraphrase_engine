@@ -280,13 +280,19 @@ class TelegramBotInterface:
         except Exception as e:
             logger.warning(f"Could not delete webhook: {e}")
         finally:
-            await bot.close()
+            # Don't close the bot immediately to avoid flood control
+            # The bot session will be closed automatically
+            pass
     
     def run(self):
         """Run the bot"""
         # First, delete any existing webhook
         import asyncio
+        import time
         asyncio.run(self.initialize())
+        
+        # Wait a bit to avoid flood control
+        time.sleep(2)
         
         # Create application
         self.application = Application.builder().token(settings.telegram_bot_token).build()
