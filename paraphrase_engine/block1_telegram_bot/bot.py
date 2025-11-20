@@ -7,7 +7,7 @@ import os
 import asyncio
 from pathlib import Path
 from typing import Dict, List
-from telegram import Update, Document
+from telegram import Update, Document, Bot
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -270,8 +270,24 @@ class TelegramBotInterface:
                 text="❌ An unexpected error occurred. Please try again with /start"
             )
     
+    async def initialize(self):
+        """Initialize bot and delete webhook if exists"""
+        bot = Bot(token=settings.telegram_bot_token)
+        try:
+            # Delete any existing webhook
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook deleted successfully (if it existed)")
+        except Exception as e:
+            logger.warning(f"Could not delete webhook: {e}")
+        finally:
+            await bot.close()
+    
     def run(self):
         """Run the bot"""
+        # First, delete any existing webhook
+        import asyncio
+        asyncio.run(self.initialize())
+        
         # Create application
         self.application = Application.builder().token(settings.telegram_bot_token).build()
         
@@ -295,7 +311,11 @@ class TelegramBotInterface:
         
         # Run bot
         logger.info("Starting Telegram bot...")
-        self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Delete any existing webhook before starting polling
+        self.application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True  # This will delete webhook if exists
+        )
 
 
 def main():
