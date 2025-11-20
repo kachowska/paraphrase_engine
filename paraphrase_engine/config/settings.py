@@ -22,7 +22,7 @@ class Settings:
     """Application settings loaded from environment variables"""
     
     # Telegram Bot Configuration
-    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN", "")
     
     # AI API Keys
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
