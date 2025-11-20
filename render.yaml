@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: paraphrase-engine
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # Telegram Bot Configuration
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # AI Providers (at least one required)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Google Sheets Configuration (optional)
+      - key: GOOGLE_SHEETS_CREDENTIALS
+        sync: false
+      - key: GOOGLE_SHEETS_SPREADSHEET_ID
+        sync: false
+      # File Storage Configuration
+      - key: MAX_FILE_SIZE_MB
+        value: "10"
+      - key: FILE_RETENTION_HOURS
+        value: "24"
+      # Redis Configuration (optional)
+      - key: REDIS_URL
+        sync: false
