@@ -4,6 +4,9 @@ Main entry point for Paraphrase Engine v1.0
 
 import logging
 import sys
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import os
 
 from .config import settings
 from .block1_telegram_bot import TelegramBotInterface
@@ -19,6 +22,32 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler for health checks"""
+    
+    def do_GET(self):
+        """Handle GET requests"""
+        if self.path == '/health' or self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok","service":"paraphrase-engine"}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        """Suppress default logging"""
+        pass
+
+
+def start_health_server(port):
+    """Start a simple HTTP server for health checks"""
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"Health check server started on port {port}")
+    server.serve_forever()
 
 
 def main():
@@ -60,6 +89,12 @@ def main():
         logger.warning("Google Sheets not configured - using local logging only")
     
     try:
+        # Start health check server in a separate thread
+        port = int(os.getenv('PORT', '10000'))
+        health_thread = threading.Thread(target=start_health_server, args=(port,), daemon=True)
+        health_thread.start()
+        logger.info(f"Health check server running on port {port}")
+        
         # Create and run the bot
         bot = TelegramBotInterface()
         logger.info("Starting Telegram bot...")
