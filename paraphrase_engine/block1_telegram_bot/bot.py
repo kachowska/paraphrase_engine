@@ -272,7 +272,9 @@ class TelegramBotInterface:
     
     def run(self):
         """Run the bot"""
-        # Create application first
+        import asyncio
+        
+        # Create application
         self.application = Application.builder().token(settings.telegram_bot_token).build()
         
         # Create conversation handler
@@ -295,10 +297,11 @@ class TelegramBotInterface:
         
         # Run bot
         logger.info("Starting Telegram bot...")
-        # Run polling with webhook deletion
+        # run_polling will automatically delete webhook if exists
+        # drop_pending_updates=True ensures clean start
         self.application.run_polling(
             allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True  # This will delete webhook if exists
+            drop_pending_updates=True
         )
 
 
