@@ -7,9 +7,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Find and load .env file
-current_dir = Path(__file__).parent.parent
-env_file = current_dir / ".env"
+# Find and load .env file from project root
+project_root = Path(__file__).resolve().parents[2]
+env_file = project_root / ".env"
 
 if env_file.exists():
     load_dotenv(env_file)
@@ -64,8 +64,11 @@ class Settings:
         if not self.telegram_bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required in .env file")
         
+        # Generate a default secret key if not provided
         if not self.secret_key:
-            raise ValueError("SECRET_KEY is required in .env file")
+            import secrets
+            self.secret_key = secrets.token_urlsafe(32)
+            print(f"WARNING: No SECRET_KEY provided, using generated key. Set SECRET_KEY in production!")
         
         # Ensure at least one AI provider is configured
         if not any([self.openai_api_key, self.anthropic_api_key, self.google_api_key]):

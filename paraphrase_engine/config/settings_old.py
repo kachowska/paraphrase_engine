@@ -62,7 +62,7 @@ def get_settings():
     from pathlib import Path
     
     # Find .env file
-    current_dir = Path(__file__).parent.parent
+    current_dir = Path(__file__).resolve().parents[2]
     env_file = current_dir / ".env"
     
     if env_file.exists():

@@ -1,28 +1,12 @@
 """
-Convenience entry point that delegates to the package module.
-"""
-
-from paraphrase_engine.main import main
-
-
-if __name__ == "__main__":
-    main()
-"""
 Main entry point for Paraphrase Engine v1.0
 """
 
-import asyncio
 import logging
 import sys
-from pathlib import Path
 
-# Ensure project root is on sys.path for package imports
-project_root = Path(__file__).resolve().parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-from paraphrase_engine.config import settings
-from paraphrase_engine.block1_telegram_bot import TelegramBotInterface
+from .config import settings
+from .block1_telegram_bot import TelegramBotInterface
 
 # Configure logging
 logging.basicConfig(
