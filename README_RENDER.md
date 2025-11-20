@@ -19,8 +19,8 @@
 В разделе "Environment Variables" добавьте:
 
 #### Основные (ОБЯЗАТЕЛЬНЫЕ):
-- `TELEGRAM_BOT_TOKEN` - токен вашего Telegram бота (получить у @BotFather)
-- `SECRET_KEY` - случайная строка для безопасности (сгенерируйте длинную случайную строку)
+- `TELEGRAM_BOT_TOKEN` = `7648679762:AAHz_mnzP-ImJki6q-1-4QanpyqeMmiKHCE`
+- `SECRET_KEY` - случайная строка для безопасности (сгенерируйте длинную случайную строку, например: `your-secret-key-here-32-characters-long`)
 
 #### AI провайдеры (минимум один ОБЯЗАТЕЛЕН):
 - `OPENAI_API_KEY` - ключ OpenAI API
