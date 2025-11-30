@@ -155,12 +155,49 @@ class TelegramBotInterface:
         
         text = update.message.text
         
-        # Parse fragments (split by newline)
-        fragments = [f.strip() for f in text.split('\n') if f.strip()]
+        # Parse fragments intelligently:
+        # 1. If there are double newlines (empty lines), split by them (each paragraph = one fragment)
+        # 2. If no double newlines but text has line breaks, check if it's one paragraph or multiple
+        # 3. If lines are short (< 50 chars avg), treat each line as separate fragment
+        # 4. If lines are long, treat as one paragraph (join with spaces)
+        
+        if '\n\n' in text:
+            # Split by double newlines (paragraph separator)
+            raw_fragments = text.split('\n\n')
+            fragments = []
+            for frag in raw_fragments:
+                frag = frag.strip()
+                if frag:
+                    # Join lines within paragraph with spaces (remove line breaks)
+                    lines = [line.strip() for line in frag.split('\n') if line.strip()]
+                    if lines:
+                        # Join all lines of the paragraph into one fragment
+                        fragments.append(' '.join(lines))
+        else:
+            # No double newlines - check if single newlines are paragraph breaks or just line wraps
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            if len(lines) == 1:
+                # Single line - one fragment
+                fragments = lines
+            elif len(lines) > 1:
+                # Multiple lines - check if they're separate fragments or one paragraph
+                avg_line_length = sum(len(line) for line in lines) / len(lines)
+                
+                if avg_line_length < 50:
+                    # Short lines - likely separate fragments (one per line)
+                    fragments = lines
+                else:
+                    # Long lines - likely one paragraph with line breaks, join them
+                    fragments = [' '.join(lines)]
+            else:
+                fragments = []
         
         if not fragments:
             await update.message.reply_text(
-                "❌ No fragments detected. Please enter text with each fragment on a new line."
+                "❌ Не найдено фрагментов. Пожалуйста, введите текст.\n\n"
+                "💡 *Совет:* Разделяйте абзацы пустой строкой для лучшей обработки.",
+                parse_mode='Markdown'
             )
             return WAITING_FOR_FRAGMENTS
         

@@ -131,7 +131,7 @@ class DocumentBuilder:
             bool: True if replacement was made, False if fragment not found
         """
         
-        # Normalize texts for comparison
+        # Normalize texts for comparison (soft normalization)
         original_normalized = self._normalize_text(original_text)
         
         # Track if replacement was made
@@ -142,22 +142,35 @@ class DocumentBuilder:
             paragraph_text = paragraph.text
             paragraph_normalized = self._normalize_text(paragraph_text)
             
-            # Check if the fragment exists in this paragraph
-            if original_normalized in paragraph_normalized:
-                # Find the exact position
-                start_pos = paragraph_normalized.find(original_normalized)
+            # Check if the fragment exists in this paragraph (exact match preferred)
+            # First try exact match
+            if original_text in paragraph_text:
+                success = self._replace_in_paragraph_with_formatting(
+                    paragraph,
+                    original_text,
+                    replacement_text
+                )
                 
-                if start_pos != -1:
-                    # Perform replacement while preserving formatting
+                if success:
+                    replacement_made = True
+                    logger.info(f"Replaced fragment {fragment_index} in paragraph (exact match)")
+                    break
+            
+            # If exact match failed, try normalized match
+            elif original_normalized in paragraph_normalized:
+                # Try to find the actual text in the paragraph (accounting for whitespace differences)
+                actual_text = self._find_actual_text_in_paragraph(paragraph, original_normalized)
+                
+                if actual_text:
                     success = self._replace_in_paragraph_with_formatting(
                         paragraph,
-                        original_text,
+                        actual_text,
                         replacement_text
                     )
                     
                     if success:
                         replacement_made = True
-                        logger.info(f"Replaced fragment {fragment_index} in paragraph")
+                        logger.info(f"Replaced fragment {fragment_index} in paragraph (normalized match)")
                         break
         
         # Also check in tables
@@ -169,7 +182,8 @@ class DocumentBuilder:
                             paragraph_text = paragraph.text
                             paragraph_normalized = self._normalize_text(paragraph_text)
                             
-                            if original_normalized in paragraph_normalized:
+                            # Try exact match first
+                            if original_text in paragraph_text:
                                 success = self._replace_in_paragraph_with_formatting(
                                     paragraph,
                                     original_text,
@@ -178,8 +192,24 @@ class DocumentBuilder:
                                 
                                 if success:
                                     replacement_made = True
-                                    logger.info(f"Replaced fragment {fragment_index} in table")
+                                    logger.info(f"Replaced fragment {fragment_index} in table (exact match)")
                                     break
+                            
+                            # Try normalized match
+                            elif original_normalized in paragraph_normalized:
+                                actual_text = self._find_actual_text_in_paragraph(paragraph, original_normalized)
+                                
+                                if actual_text:
+                                    success = self._replace_in_paragraph_with_formatting(
+                                        paragraph,
+                                        actual_text,
+                                        replacement_text
+                                    )
+                                    
+                                    if success:
+                                        replacement_made = True
+                                        logger.info(f"Replaced fragment {fragment_index} in table (normalized match)")
+                                        break
                         
                         if replacement_made:
                             break
@@ -189,6 +219,12 @@ class DocumentBuilder:
                 
                 if replacement_made:
                     break
+        
+        if not replacement_made:
+            logger.warning(
+                f"Fragment {fragment_index} not found in document. "
+                f"Original: {original_text[:100]}..."
+            )
         
         return replacement_made
     
@@ -202,23 +238,46 @@ class DocumentBuilder:
         Replace text in paragraph while preserving formatting
         
         This is a complex operation that tries to maintain the original formatting
+        Handles cases where text spans multiple runs
         """
         
         try:
             # Get full paragraph text
             full_text = paragraph.text
             
-            # Check if original text exists
-            if original_text not in full_text:
-                return False
-            
-            # Find position of text to replace
+            # Check if original text exists (try exact match first)
             start_index = full_text.find(original_text)
-            end_index = start_index + len(original_text)
+            
+            if start_index == -1:
+                # Try normalized match
+                normalized_full = self._normalize_text(full_text)
+                normalized_original = self._normalize_text(original_text)
+                
+                if normalized_original not in normalized_full:
+                    return False
+                
+                # Find approximate position
+                norm_start = normalized_full.find(normalized_original)
+                # Map back to actual position (approximate)
+                actual_start = 0
+                norm_count = 0
+                for i, char in enumerate(full_text):
+                    if self._normalize_text(char):
+                        if norm_count == norm_start:
+                            actual_start = i
+                            break
+                        norm_count += 1
+                
+                start_index = actual_start
+                # Estimate end index (this is approximate)
+                end_index = start_index + len(original_text)
+            else:
+                end_index = start_index + len(original_text)
             
             # Build new paragraph content
             new_runs = []
             current_pos = 0
+            replacement_added = False
             
             for run in paragraph.runs:
                 run_text = run.text
@@ -240,25 +299,33 @@ class DocumentBuilder:
                     if before_text:
                         new_runs.append((before_text, run))
                     
-                    # Add replacement text with same formatting
-                    if run_end >= end_index:
-                        # Replacement is completely within this run
+                    # Add replacement text with same formatting (only once)
+                    if not replacement_added:
                         new_runs.append((replacement_text, run))
+                        replacement_added = True
+                    
+                    # Check if replacement ends in this run
+                    if run_end >= end_index:
                         # Part after replacement
                         after_text = run_text[end_index - run_start:]
                         if after_text:
                             new_runs.append((after_text, run))
-                    else:
-                        # Replacement spans multiple runs
-                        new_runs.append((replacement_text, run))
                 
                 # Case 4: Run is completely within replacement area
                 elif run_start >= start_index and run_end <= end_index:
                     # Skip this run (it's being replaced)
-                    pass
+                    # But add replacement if we haven't yet
+                    if not replacement_added:
+                        new_runs.append((replacement_text, run))
+                        replacement_added = True
                 
                 # Case 5: Run contains the end of replacement area
                 elif run_start < end_index and run_end > end_index:
+                    # Add replacement if we haven't yet
+                    if not replacement_added:
+                        new_runs.append((replacement_text, run))
+                        replacement_added = True
+                    
                     # Part after replacement
                     after_text = run_text[end_index - run_start:]
                     if after_text:
@@ -266,24 +333,41 @@ class DocumentBuilder:
                 
                 current_pos = run_end
             
+            # If replacement wasn't added (edge case), add it at the start position
+            if not replacement_added:
+                # Find the run that contains start_index
+                current_pos = 0
+                for i, run in enumerate(paragraph.runs):
+                    run_start = current_pos
+                    run_end = current_pos + len(run.text)
+                    if run_start <= start_index < run_end:
+                        # Insert replacement before this run
+                        new_runs.insert(i, (replacement_text, run))
+                        break
+                    current_pos = run_end
+            
             # Clear paragraph and rebuild with new runs
             paragraph.clear()
             
             for text, original_run in new_runs:
-                new_run = paragraph.add_run(text)
-                # Copy formatting from original run
-                self._copy_run_formatting(original_run, new_run)
+                if text:  # Only add non-empty runs
+                    new_run = paragraph.add_run(text)
+                    # Copy formatting from original run
+                    self._copy_run_formatting(original_run, new_run)
             
             return True
             
         except Exception as e:
-            logger.error(f"Error replacing text with formatting: {e}")
+            logger.error(f"Error replacing text with formatting: {e}", exc_info=True)
             
             # Fallback: Simple replacement without formatting preservation
             try:
+                full_text = paragraph.text
                 paragraph.text = full_text.replace(original_text, replacement_text)
+                logger.warning(f"Used fallback replacement method for paragraph")
                 return True
-            except:
+            except Exception as fallback_error:
+                logger.error(f"Fallback replacement also failed: {fallback_error}")
                 return False
     
     def _copy_run_formatting(self, source_run: Run, target_run: Run):
@@ -310,15 +394,107 @@ class DocumentBuilder:
         """
         Normalize text for comparison
         Handles different whitespace, line breaks, etc.
+        Uses soft normalization to preserve text structure
         """
-        # Replace multiple spaces with single space
         import re
-        text = re.sub(r'\s+', ' ', text)
+        # Normalize line endings first
+        text = text.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+        # Replace multiple spaces/tabs with single space (but preserve single spaces)
+        text = re.sub(r'[ \t]+', ' ', text)
         # Strip leading/trailing whitespace
         text = text.strip()
-        # Normalize line endings
-        text = text.replace('\r\n', '\n').replace('\r', '\n')
         return text
+    
+    def _find_actual_text_in_paragraph(self, paragraph: Paragraph, normalized_search: str) -> Optional[str]:
+        """
+        Find the actual text in paragraph that matches normalized search string
+        Accounts for whitespace differences while preserving the actual text structure
+        """
+        # Get all text from runs
+        full_text = paragraph.text
+        normalized_full = self._normalize_text(full_text)
+        
+        # Find position in normalized text
+        start_pos = normalized_full.find(normalized_search)
+        if start_pos == -1:
+            return None
+        
+        # Try to find corresponding position in actual text
+        # This is approximate - we'll use a sliding window approach
+        search_length = len(normalized_search)
+        
+        # Build normalized text with position mapping
+        normalized_chars = []
+        actual_chars = []
+        pos = 0
+        
+        for run in paragraph.runs:
+            for char in run.text:
+                actual_chars.append((char, pos))
+                normalized_char = self._normalize_text(char)
+                if normalized_char:
+                    normalized_chars.append((normalized_char, pos))
+                pos += 1
+        
+        # Find start and end positions
+        normalized_text = ''.join([c[0] for c in normalized_chars])
+        search_start = normalized_text.find(normalized_search)
+        
+        if search_start == -1:
+            return None
+        
+        # Map back to actual text positions
+        # This is complex, so we'll use a simpler approach:
+        # Extract a window from the actual text that should contain our fragment
+        actual_start = 0
+        actual_end = len(full_text)
+        
+        # Count normalized characters to find approximate position
+        norm_count = 0
+        for i, char in enumerate(full_text):
+            norm_char = self._normalize_text(char)
+            if norm_char:
+                if norm_count == search_start:
+                    actual_start = i
+                if norm_count == search_start + search_length:
+                    actual_end = i
+                    break
+                norm_count += 1
+        
+        # Extract candidate text
+        candidate = full_text[actual_start:actual_end]
+        
+        # Verify it normalizes to our search string
+        if self._normalize_text(candidate) == normalized_search:
+            return candidate
+        
+        # If exact match failed, try to find by searching for key words
+        # Split normalized search into words
+        search_words = normalized_search.split()
+        if len(search_words) < 2:
+            return None
+        
+        # Find first and last words in actual text
+        first_word = search_words[0]
+        last_word = search_words[-1]
+        
+        first_pos = full_text.find(first_word)
+        if first_pos == -1:
+            return None
+        
+        # Find last word after first word
+        last_pos = full_text.find(last_word, first_pos)
+        if last_pos == -1:
+            return None
+        
+        # Extract text between first and last word (with some padding)
+        candidate = full_text[first_pos:last_pos + len(last_word)]
+        
+        # Verify normalization
+        if self._normalize_text(candidate) == normalized_search:
+            return candidate
+        
+        return None
     
     async def validate_document(self, file_path: str) -> Tuple[bool, Optional[str]]:
         """
