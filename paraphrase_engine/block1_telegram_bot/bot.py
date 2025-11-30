@@ -244,12 +244,17 @@ class TelegramBotInterface:
             )
             
             # Add fragments to the task before processing
-            # Get the task and add fragments from session
-            task = self.task_manager.tasks.get(task_id)
-            if task and session.get("fragments"):
-                task.fragments = session["fragments"]
-                # Save updated task to disk
-                await self.task_manager._save_task_to_disk(task)
+            if session.get("fragments"):
+                task = self.task_manager.tasks.get(task_id)
+                if task:
+                    task.fragments = session["fragments"]
+                    # Save updated task to disk
+                    await self.task_manager._save_task_to_disk(task)
+                    logger.info(f"Added {len(session['fragments'])} fragments to task {task_id}")
+                else:
+                    logger.error(f"Task {task_id} not found after creation")
+                    await update.message.reply_text("❌ Error: Task not found. Please try again.")
+                    return
             
             # Process task (this will orchestrate blocks 3 and 4)
             result_file_path = await self.task_manager.process_task(task_id)

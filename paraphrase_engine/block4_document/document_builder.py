@@ -256,21 +256,56 @@ class DocumentBuilder:
                 if normalized_original not in normalized_full:
                     return False
                 
-                # Find approximate position
+                # Find normalized positions
                 norm_start = normalized_full.find(normalized_original)
-                # Map back to actual position (approximate)
-                actual_start = 0
-                norm_count = 0
-                for i, char in enumerate(full_text):
-                    if self._normalize_text(char):
-                        if norm_count == norm_start:
-                            actual_start = i
-                            break
-                        norm_count += 1
+                norm_end = norm_start + len(normalized_original)
                 
-                start_index = actual_start
-                # Estimate end index (this is approximate)
-                end_index = start_index + len(original_text)
+                # Build mapping from normalized positions to actual positions
+                # by simulating the normalization process
+                norm_to_actual = {}  # Maps normalized index to actual index
+                norm_pos = 0
+                in_whitespace = False
+                
+                for actual_pos, char in enumerate(full_text):
+                    if not char.isspace():
+                        # Non-whitespace character: always contributes to normalized text
+                        norm_to_actual[norm_pos] = actual_pos
+                        norm_pos += 1
+                        in_whitespace = False
+                    else:
+                        # Whitespace: only first whitespace in sequence contributes
+                        if not in_whitespace:
+                            norm_to_actual[norm_pos] = actual_pos
+                            norm_pos += 1
+                            in_whitespace = True
+                        # Subsequent whitespace doesn't contribute to normalized text
+                
+                # Map normalized start and end to actual positions
+                if norm_start in norm_to_actual:
+                    start_index = norm_to_actual[norm_start]
+                else:
+                    return False
+                
+                # For end position, find the actual position corresponding to norm_end
+                # If exact match not found, use the position after the last character
+                # that contributes to normalized text up to norm_end
+                if norm_end in norm_to_actual:
+                    end_index = norm_to_actual[norm_end]
+                else:
+                    # Find the last actual position that maps to a normalized position < norm_end
+                    # and set end_index to the position after it
+                    max_actual = -1
+                    for norm_idx, actual_idx in norm_to_actual.items():
+                        if norm_idx < norm_end:
+                            max_actual = max(max_actual, actual_idx)
+                    if max_actual >= 0:
+                        # Find the end of the whitespace sequence or next non-whitespace
+                        end_index = max_actual + 1
+                        # Skip any trailing whitespace after this position
+                        while end_index < len(full_text) and full_text[end_index].isspace():
+                            end_index += 1
+                    else:
+                        end_index = len(full_text)
             else:
                 end_index = start_index + len(original_text)
             

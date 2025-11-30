@@ -101,17 +101,18 @@ class AnthropicProvider(AIProvider):
     
     def __init__(self, api_key: str, model: str = None):
         # Use Claude Sonnet 4.5 as default (cost-effective)
+        # Correct model ID as of November 2025: claude-sonnet-4-5-20250929
         if model is None:
-            model = "claude-sonnet-4-5-20250514"
+            model = "claude-sonnet-4-5-20250929"
         super().__init__(api_key, model, "Anthropic")
         # List of fallback models to try if primary fails
         self.fallback_models = [
-            "claude-sonnet-4-5-20250514",
-            "claude-3-5-sonnet-20240620",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307",
-            "claude-opus-4-5-20251101",
-            "claude-3-opus-20240229"
+            "claude-sonnet-4-5-20250929",  # Claude Sonnet 4.5 (primary, correct ID)
+            "claude-3-5-sonnet-20240620",   # Claude 3.5 Sonnet (stable)
+            "claude-3-sonnet-20240229",     # Claude 3 Sonnet (reliable)
+            "claude-3-haiku-20240307",      # Claude 3 Haiku (fastest and cheapest)
+            "claude-opus-4-5-20251101",      # Claude Opus 4.5 (expensive, last resort)
+            "claude-3-opus-20240229"        # Claude 3 Opus (expensive, last resort)
         ]
     
     def _initialize_client(self):
