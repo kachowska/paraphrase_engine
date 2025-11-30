@@ -33,11 +33,11 @@ class TaskStatus(Enum):
 class Task:
     """Represents a paraphrasing task"""
     
-    def __init__(self, task_id: str, chat_id: int, file_path: str, fragments: List[str]):
+    def __init__(self, task_id: str, chat_id: int, file_path: str, fragments: List[str] = None):
         self.task_id = task_id
         self.chat_id = chat_id
         self.file_path = file_path
-        self.fragments = fragments
+        self.fragments = fragments if fragments is not None else []
         self.paraphrased_fragments: List[str] = []
         self.status = TaskStatus.CREATED
         self.created_at = datetime.now()
@@ -77,16 +77,16 @@ class TaskManager:
         self.tasks_dir = Path(settings.temp_files_dir) / "tasks"
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
     
-    async def create_task(self, chat_id: int, file_path: str, fragments: List[str]) -> str:
-        """Create a new task"""
+    async def create_task(self, chat_id: int, file_path: str) -> str:
+        """Create a new task without fragments (fragments are added iteratively)"""
         task_id = str(uuid.uuid4())
         
-        # Create task object
+        # Create task object without fragments (they will be added later)
         task = Task(
             task_id=task_id,
             chat_id=chat_id,
             file_path=file_path,
-            fragments=fragments
+            fragments=[]  # Start with empty fragments list
         )
         
         # Store task
@@ -99,10 +99,10 @@ class TaskManager:
         await self.system_logger.log_task_created(
             task_id=task_id,
             chat_id=chat_id,
-            num_fragments=len(fragments)
+            num_fragments=0  # No fragments yet
         )
         
-        logger.info(f"Created task {task_id} for chat {chat_id} with {len(fragments)} fragments")
+        logger.info(f"Created task {task_id} for chat {chat_id} (fragments will be added iteratively)")
         
         return task_id
     

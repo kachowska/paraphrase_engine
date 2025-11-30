@@ -182,9 +182,9 @@ class TelegramBotInterface:
         
         # Parse fragments intelligently:
         # 1. If there are double newlines (empty lines), split by them (each paragraph = one fragment)
-        # 2. If no double newlines but text has line breaks, check if it's one paragraph or multiple
-        # 3. If lines are short (< 50 chars avg), treat each line as separate fragment
-        # 4. If lines are long, treat as one paragraph (join with spaces)
+        #    - Each paragraph's internal line breaks are joined with spaces
+        # 2. If no double newlines, treat each non-empty line as a separate fragment
+        #    - This respects the user's explicit line breaks as fragment boundaries
         
         if '\n\n' in text:
             # Split by double newlines (paragraph separator)
@@ -199,24 +199,9 @@ class TelegramBotInterface:
                         # Join all lines of the paragraph into one fragment
                         fragments.append(' '.join(lines))
         else:
-            # No double newlines - check if single newlines are paragraph breaks or just line wraps
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            if len(lines) == 1:
-                # Single line - one fragment
-                fragments = lines
-            elif len(lines) > 1:
-                # Multiple lines - check if they're separate fragments or one paragraph
-                avg_line_length = sum(len(line) for line in lines) / len(lines)
-                
-                if avg_line_length < 50:
-                    # Short lines - likely separate fragments (one per line)
-                    fragments = lines
-                else:
-                    # Long lines - likely one paragraph with line breaks, join them
-                    fragments = [' '.join(lines)]
-            else:
-                fragments = []
+            # No double newlines - treat each non-empty line as a separate fragment
+            # This respects user intent: if they put text on separate lines, they likely want separate fragments
+            fragments = [line.strip() for line in text.split('\n') if line.strip()]
         
         if not fragments:
             await update.message.reply_text(
@@ -252,12 +237,19 @@ class TelegramBotInterface:
             return
         
         try:
-            # Create task in task manager
+            # Create task in task manager (without fragments - they are added iteratively)
             task_id = await self.task_manager.create_task(
                 chat_id=chat_id,
-                file_path=session["file_path"],
-                fragments=session["fragments"]
+                file_path=session["file_path"]
             )
+            
+            # Add fragments to the task before processing
+            # Get the task and add fragments from session
+            task = self.task_manager.tasks.get(task_id)
+            if task and session.get("fragments"):
+                task.fragments = session["fragments"]
+                # Save updated task to disk
+                await self.task_manager._save_task_to_disk(task)
             
             # Process task (this will orchestrate blocks 3 and 4)
             result_file_path = await self.task_manager.process_task(task_id)
