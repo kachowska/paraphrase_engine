@@ -51,7 +51,7 @@ if not SECRET_PATH:
 else:
     logger.info(f"Bot token configured (length: {len(SECRET_PATH)})")
 
-@app.add_event_handler("startup")
+@app.on_event("startup")
 async def startup_event():
     """On startup, set the webhook to point to this server."""
     logger.info("Starting up webhook server...")
@@ -98,7 +98,7 @@ async def startup_event():
     else:
         logger.warning("Not setting webhook in development mode. Set APP_ENV=production to enable.")
 
-@app.add_event_handler("shutdown")
+@app.on_event("shutdown")
 async def shutdown_event():
     """On shutdown, remove the webhook."""
     if settings.app_env == "production":
