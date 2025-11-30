@@ -56,7 +56,7 @@ class Settings:
     
     # AI Model Settings
     ai_temperature: float = float(os.getenv("AI_TEMPERATURE", "0.7"))
-    ai_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "2000"))
+    ai_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "4000"))  # Increased default for better results
     ai_timeout_seconds: int = int(os.getenv("AI_TIMEOUT_SECONDS", "30"))
     ai_retry_attempts: int = int(os.getenv("AI_RETRY_ATTEMPTS", "3"))
     
