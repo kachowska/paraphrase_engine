@@ -38,6 +38,31 @@ class TelegramBotInterface:
         self.task_manager = TaskManager()
         self.system_logger = SystemLogger()
         self.user_sessions: Dict[int, dict] = {}
+        self._setup_handlers()
+    
+    def _setup_handlers(self):
+        """Setup bot handlers - can be called before or after application creation"""
+        # Create application if not exists
+        if self.application is None:
+            self.application = Application.builder().token(settings.telegram_bot_token).build()
+        
+        # Create conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', self.start_command)],
+            states={
+                WAITING_FOR_FILE: [
+                    MessageHandler(filters.Document.ALL, self.handle_document),
+                ],
+                WAITING_FOR_FRAGMENTS: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_fragments)
+                ],
+            },
+            fallbacks=[CommandHandler('cancel', self.cancel_command)],
+        )
+        
+        # Add handlers
+        self.application.add_handler(conv_handler)
+        self.application.add_error_handler(self.error_handler)
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /start command"""
@@ -308,32 +333,10 @@ class TelegramBotInterface:
             )
     
     def run(self):
-        """Run the bot"""
-        import asyncio
-        
-        # Create application
-        self.application = Application.builder().token(settings.telegram_bot_token).build()
-        
-        # Create conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', self.start_command)],
-            states={
-                WAITING_FOR_FILE: [
-                    MessageHandler(filters.Document.ALL, self.handle_document),
-                ],
-                WAITING_FOR_FRAGMENTS: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_fragments)
-                ],
-            },
-            fallbacks=[CommandHandler('cancel', self.cancel_command)],
-        )
-        
-        # Add handlers
-        self.application.add_handler(conv_handler)
-        self.application.add_error_handler(self.error_handler)
-        
+        """Run the bot in polling mode"""
+        # Handlers are already set up in __init__
         # Run bot
-        logger.info("Starting Telegram bot...")
+        logger.info("Starting Telegram bot in polling mode...")
         # run_polling will automatically delete webhook if exists
         # drop_pending_updates=True ensures clean start
         self.application.run_polling(
