@@ -103,6 +103,42 @@ class TelegramBotInterface:
         
         return WAITING_FOR_FILE
     
+    async def continue_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /continue command - continue working with existing document"""
+        chat_id = update.effective_chat.id
+        user_name = update.effective_user.username or "User"
+        
+        # Check if there's an existing document
+        existing_doc = await self.task_manager.load_existing_document(chat_id)
+        
+        if not existing_doc:
+            await update.message.reply_text(
+                "❌ Не найдено сохраненного документа для продолжения работы.\n\n"
+                "💡 Используйте /start для начала новой работы с документом."
+            )
+            return ConversationHandler.END
+        
+        # Initialize session for continuing
+        self.user_sessions[chat_id] = {
+            "chat_id": chat_id,
+            "user_name": user_name,
+            "start_time": datetime.now(),
+            "file_path": existing_doc.current_file_path,
+            "fragments": [],
+            "existing_document": existing_doc,
+            "is_continuation": True
+        }
+        
+        await update.message.reply_text(
+            f"✅ Найден сохраненный документ (версия {existing_doc.version}).\n\n"
+            f"📄 Оригинальный файл: {Path(existing_doc.original_file_path).name}\n"
+            f"📝 Обработано фрагментов: {len(existing_doc.fragments)}\n"
+            f"🕒 Обновлен: {existing_doc.updated_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+            "📋 Введите новые фрагменты текста для перефразирования:"
+        )
+        
+        return WAITING_FOR_FRAGMENT
+    
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle document upload"""
         chat_id = update.effective_chat.id
