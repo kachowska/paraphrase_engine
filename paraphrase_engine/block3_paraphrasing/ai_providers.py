@@ -121,7 +121,7 @@ class AnthropicProvider(AIProvider):
             raise ImportError("Anthropic package not installed")
         
         try:
-        self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
+            self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
             # Test that the client has the messages attribute
             if not hasattr(self.client, 'messages'):
                 raise AttributeError(
