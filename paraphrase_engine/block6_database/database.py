@@ -112,22 +112,11 @@ class DatabaseManager:
         """Initialize PostgreSQL connection"""
         try:
             import asyncpg
-            # Parse connection string
-            # postgresql://user:pass@host:port/dbname
-            import re
-            match = re.match(r'postgres(ql)?://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)', self.database_url)
-            if not match:
-                raise ValueError(f"Invalid PostgreSQL URL format: {self.database_url}")
-            
-            user, password, host, port, database = match.groups()
-            
-            self.connection = await asyncpg.connect(
-                host=host,
-                port=int(port),
-                user=user,
-                password=password,
-                database=database
-            )
+            # asyncpg умеет сам парсить стандартный URL подключения,
+            # поэтому нет смысла разбирать его вручную через regex.
+            # Это также корректно работает с URL Render вида:
+            # postgres://user:password@host:port/database
+            self.connection = await asyncpg.connect(self.database_url)
             logger.info("Connected to PostgreSQL database")
         except ImportError:
             raise ImportError("asyncpg is required for PostgreSQL. Install with: pip install asyncpg")
