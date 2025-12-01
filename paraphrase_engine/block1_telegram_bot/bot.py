@@ -49,7 +49,10 @@ class TelegramBotInterface:
         
         # Create conversation handler
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', self.start_command)],
+            entry_points=[
+                CommandHandler('start', self.start_command),
+                CommandHandler('continue', self.continue_command)
+            ],
             states={
                 WAITING_FOR_FILE: [
                     MessageHandler(filters.Document.ALL, self.handle_document),
@@ -333,14 +336,49 @@ class TelegramBotInterface:
                 )
                 return ConversationHandler.END
             
-            # Confirm processing
-            await message.reply_text(
-                f"✅ Принято {len(fragments)} фрагмент(ов). Начинаю обработку...\n"
-                f"⏳ Это может занять некоторое время. Пожалуйста, подождите."
-            )
+            # Check if this is a continuation of existing document
+            session = self.user_sessions[chat_id]
+            is_continuation = session.get("is_continuation", False)
             
-            # Process all fragments
-            await self.process_task(update, context, chat_id)
+            if is_continuation:
+                # Continue with existing document
+                await message.reply_text(
+                    f"✅ Принято {len(fragments)} новый(ых) фрагмент(ов). Обновляю документ...\n"
+                    f"⏳ Это может занять некоторое время. Пожалуйста, подождите."
+                )
+                
+                result_file_path = await self.task_manager.continue_with_existing_document(
+                    chat_id=chat_id,
+                    new_fragments=fragments
+                )
+                
+                if result_file_path and os.path.exists(result_file_path):
+                    existing_doc = session.get("existing_document")
+                    version = existing_doc.version + 1 if existing_doc else 1
+                    
+                    with open(result_file_path, 'rb') as f:
+                        await context.bot.send_document(
+                            chat_id=chat_id,
+                            document=f,
+                            caption=f"✅ Документ обновлен (версия {version})!\n\n"
+                                   f"📊 Всего обработано фрагментов: {len(existing_doc.fragments) + len(fragments) if existing_doc else len(fragments)}",
+                            filename=f"updated_{Path(result_file_path).name}"
+                        )
+                    
+                    await self.cleanup_session(chat_id)
+                else:
+                    await message.reply_text(
+                        "❌ Ошибка при обновлении документа. Пожалуйста, попробуйте снова."
+                    )
+            else:
+                # New document processing
+                await message.reply_text(
+                    f"✅ Принято {len(fragments)} фрагмент(ов). Начинаю обработку...\n"
+                    f"⏳ Это может занять некоторое время. Пожалуйста, подождите."
+                )
+                
+                # Process all fragments
+                await self.process_task(update, context, chat_id)
             
             return ConversationHandler.END
         

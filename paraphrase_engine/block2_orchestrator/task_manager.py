@@ -17,6 +17,7 @@ from ..config import settings
 from ..block3_paraphrasing.agent_core import ParaphrasingAgent
 from ..block4_document.document_builder import DocumentBuilder
 from ..block5_logging.logger import SystemLogger
+from ..block6_database.database import DatabaseManager, ParaphrasedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ class TaskManager:
         self.paraphrasing_agent = ParaphrasingAgent()
         self.document_builder = DocumentBuilder()
         self.system_logger = SystemLogger()
+        self.database_manager = DatabaseManager()
         self.processing_lock = asyncio.Lock()
         
         # Ensure tasks directory exists
@@ -138,6 +140,9 @@ class TaskManager:
                 
                 # Save final task state
                 await self._save_task_to_disk(task)
+                
+                # Save to database for future reference
+                await self._save_document_to_db(task, result_file_path)
                 
                 # Log completion
                 await self.system_logger.log_task_completed(
@@ -349,3 +354,133 @@ class TaskManager:
             }
         
         return None
+    
+    async def _save_document_to_db(self, task: Task, result_file_path: str):
+        """Save document to database for future reference"""
+        try:
+            # Check if document already exists for this chat
+            existing_doc = await self.database_manager.get_document_by_chat_id(task.chat_id)
+            
+            if existing_doc:
+                # Update existing document with new version
+                document = ParaphrasedDocument(
+                    document_id=existing_doc.document_id,
+                    chat_id=task.chat_id,
+                    original_file_path=existing_doc.original_file_path,
+                    current_file_path=result_file_path,
+                    fragments=task.fragments,
+                    paraphrased_fragments=task.paraphrased_fragments,
+                    version=existing_doc.version + 1,
+                    created_at=existing_doc.created_at,
+                    updated_at=datetime.now(),
+                    metadata={"task_id": task.task_id}
+                )
+            else:
+                # Create new document
+                document = ParaphrasedDocument(
+                    document_id=task.task_id,
+                    chat_id=task.chat_id,
+                    original_file_path=task.file_path,
+                    current_file_path=result_file_path,
+                    fragments=task.fragments,
+                    paraphrased_fragments=task.paraphrased_fragments,
+                    version=1,
+                    created_at=task.created_at,
+                    updated_at=datetime.now(),
+                    metadata={"task_id": task.task_id}
+                )
+            
+            await self.database_manager.save_document(document)
+            logger.info(f"Saved document {document.document_id} to database (version {document.version})")
+        except Exception as e:
+            logger.error(f"Failed to save document to database: {e}")
+    
+    async def load_existing_document(self, chat_id: int) -> Optional[ParaphrasedDocument]:
+        """Load the most recent document for a chat from database"""
+        try:
+            document = await self.database_manager.get_document_by_chat_id(chat_id)
+            if document:
+                logger.info(f"Loaded existing document {document.document_id} for chat {chat_id}")
+            return document
+        except Exception as e:
+            logger.error(f"Failed to load existing document: {e}")
+            return None
+    
+    async def continue_with_existing_document(
+        self, 
+        chat_id: int, 
+        new_fragments: List[str]
+    ) -> Optional[str]:
+        """
+        Continue working with an existing document by adding new fragments
+        
+        Args:
+            chat_id: Chat ID
+            new_fragments: New fragments to paraphrase and add
+            
+        Returns:
+            Path to updated document or None if failed
+        """
+        try:
+            # Load existing document
+            existing_doc = await self.load_existing_document(chat_id)
+            if not existing_doc:
+                logger.warning(f"No existing document found for chat {chat_id}")
+                return None
+            
+            # Check if file still exists
+            if not os.path.exists(existing_doc.current_file_path):
+                logger.error(f"Existing document file not found: {existing_doc.current_file_path}")
+                return None
+            
+            # Create new task with existing document as source
+            task_id = str(uuid.uuid4())
+            task = Task(
+                task_id=task_id,
+                chat_id=chat_id,
+                file_path=existing_doc.current_file_path,  # Use current version as source
+                fragments=new_fragments
+            )
+            
+            # Process new fragments
+            task.paraphrased_fragments = await self._process_fragments(task)
+            
+            # Build updated document (combining old and new fragments)
+            # Merge fragments: existing + new
+            all_fragments = existing_doc.fragments + new_fragments
+            all_paraphrased = existing_doc.paraphrased_fragments + task.paraphrased_fragments
+            
+            # Create temporary task for building
+            merge_task = Task(
+                task_id=task_id,
+                chat_id=chat_id,
+                file_path=existing_doc.original_file_path,  # Always use original as source
+                fragments=all_fragments
+            )
+            merge_task.paraphrased_fragments = all_paraphrased
+            
+            # Build document with all fragments
+            result_file_path = await self._build_document(merge_task)
+            
+            # Save updated document to database
+            updated_doc = ParaphrasedDocument(
+                document_id=existing_doc.document_id,
+                chat_id=chat_id,
+                original_file_path=existing_doc.original_file_path,
+                current_file_path=result_file_path,
+                fragments=all_fragments,
+                paraphrased_fragments=all_paraphrased,
+                version=existing_doc.version + 1,
+                created_at=existing_doc.created_at,
+                updated_at=datetime.now(),
+                metadata={"task_id": task_id, "previous_version": existing_doc.version}
+            )
+            
+            await self.database_manager.save_document(updated_doc)
+            logger.info(f"Updated document {updated_doc.document_id} to version {updated_doc.version}")
+            
+            return result_file_path
+            
+        except Exception as e:
+            logger.error(f"Failed to continue with existing document: {e}")
+            return None
