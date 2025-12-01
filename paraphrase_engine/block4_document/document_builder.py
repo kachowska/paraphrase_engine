@@ -509,24 +509,64 @@ class DocumentBuilder:
         if len(search_words) < 2:
             return None
         
-        # Find first and last words in actual text
+        # IMPORTANT: Search in normalized text, not original text
+        # This ensures we find matches regardless of case, whitespace differences, etc.
+        # The normalized_full was already computed above (line 450)
         first_word = search_words[0]
         last_word = search_words[-1]
         
-        first_pos = full_text.find(first_word)
-        if first_pos == -1:
+        # Find first word in normalized text (case-insensitive search)
+        # Since _normalize_text doesn't lowercase, we need case-insensitive search
+        import re
+        first_match = re.search(re.escape(first_word), normalized_full, re.IGNORECASE)
+        if not first_match:
+            return None
+        first_pos_norm = first_match.start()
+        
+        # Find last word after first word in normalized text (case-insensitive)
+        last_match = re.search(re.escape(last_word), normalized_full[first_pos_norm:], re.IGNORECASE)
+        if not last_match:
+            return None
+        last_pos_norm = first_pos_norm + last_match.start()
+        
+        # Now we need to map normalized positions back to actual text positions
+        # Build a mapping by processing the text character by character
+        # and tracking how normalization affects positions
+        norm_to_actual_start = {}  # Maps normalized char index to actual char index
+        norm_to_actual_end = {}    # Maps normalized char index to actual char end index
+        
+        norm_index = 0
+        for actual_index, char in enumerate(full_text):
+            # Normalize this single character (or sequence)
+            char_normalized = self._normalize_text(char)
+            
+            # Map each normalized character position
+            for norm_char in char_normalized:
+                if norm_index not in norm_to_actual_start:
+                    norm_to_actual_start[norm_index] = actual_index
+                norm_to_actual_end[norm_index] = actual_index + 1
+                norm_index += 1
+        
+        # Get actual text positions from normalized positions
+        if first_pos_norm not in norm_to_actual_start:
             return None
         
-        # Find last word after first word
-        last_pos = full_text.find(last_word, first_pos)
-        if last_pos == -1:
-            return None
+        actual_start = norm_to_actual_start[first_pos_norm]
         
-        # Extract text between first and last word (with some padding)
-        candidate = full_text[first_pos:last_pos + len(last_word)]
+        # For the end, find where the last word ends in normalized text
+        last_word_end_norm = last_pos_norm + len(last_word)
+        if last_word_end_norm in norm_to_actual_end:
+            actual_end = norm_to_actual_end[last_word_end_norm - 1]
+        else:
+            # Fallback: use the last available position
+            actual_end = len(full_text)
         
-        # Verify normalization
-        if self._normalize_text(candidate) == normalized_search:
+        # Extract candidate text from actual text
+        candidate = full_text[actual_start:actual_end]
+        
+        # Verify normalization matches (case-insensitive comparison)
+        candidate_normalized = self._normalize_text(candidate)
+        if candidate_normalized.lower() == normalized_search.lower():
             return candidate
         
         return None

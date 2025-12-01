@@ -121,7 +121,7 @@ class AnthropicProvider(AIProvider):
             raise ImportError("Anthropic package not installed")
         
         try:
-            self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
+        self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
             # Test that the client has the messages attribute
             if not hasattr(self.client, 'messages'):
                 raise AttributeError(
@@ -152,22 +152,22 @@ class AnthropicProvider(AIProvider):
         last_error = None
         
         for model_name in models_to_try:
-            try:
-                response = await self.client.messages.create(
+        try:
+            response = await self.client.messages.create(
                     model=model_name,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout=settings.ai_timeout_seconds
-                )
-                
-                # Extract text from response
-                if response.content and len(response.content) > 0:
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout=settings.ai_timeout_seconds
+            )
+            
+            # Extract text from response
+            if response.content and len(response.content) > 0:
                     content_item = response.content[0]
                     if hasattr(content_item, 'text'):
                         result = content_item.text.strip()
@@ -181,8 +181,8 @@ class AnthropicProvider(AIProvider):
                         return result
                 
                 raise ValueError(f"Empty response from model {model_name}")
-                
-            except Exception as e:
+            
+        except Exception as e:
                 last_error = e
                 error_str = str(e)
                 if "404" in error_str or "not_found" in error_str.lower():
@@ -319,7 +319,7 @@ class GoogleGeminiProvider(AIProvider):
             # Normal case - try to get text
             try:
                 if hasattr(response, 'text') and response.text:
-                    return response.text.strip()
+            return response.text.strip()
             except Exception as text_error:
                 logger.debug(f"Could not access response.text: {text_error}")
             

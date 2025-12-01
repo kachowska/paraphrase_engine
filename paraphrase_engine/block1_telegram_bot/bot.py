@@ -191,8 +191,55 @@ class TelegramBotInterface:
             )
             return WAITING_FOR_FRAGMENT
         
-        # Normalize fragment: join multiple lines with spaces (treat as one fragment)
-        fragment = ' '.join([line.strip() for line in text.split('\n') if line.strip()])
+        # Parse fragment: if there are double newlines, split into separate fragments
+        # Otherwise, treat as one fragment (join lines with spaces)
+        if '\n\n' in text:
+            # Split by double newlines (paragraph separator)
+            raw_fragments = text.split('\n\n')
+            fragments = []
+            for frag in raw_fragments:
+                frag = frag.strip()
+                if frag:
+                    # Join lines within paragraph with spaces
+                    lines = [line.strip() for line in frag.split('\n') if line.strip()]
+                    if lines:
+                        fragments.append(' '.join(lines))
+            
+            # If we got multiple fragments, add them all
+            if len(fragments) > 1:
+                if "fragments" not in self.user_sessions[chat_id]:
+                    self.user_sessions[chat_id]["fragments"] = []
+                
+                for frag in fragments:
+                    self.user_sessions[chat_id]["fragments"].append(frag)
+                
+                total_fragments = len(self.user_sessions[chat_id]["fragments"])
+                await update.message.reply_text(
+                    f"✅ Принято {len(fragments)} фрагмент(ов).\n"
+                    f"📝 Всего фрагментов: {total_fragments}"
+                )
+                
+                # Ask if user wants to add more
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Да", callback_data="more_yes"),
+                        InlineKeyboardButton("❌ Нет", callback_data="more_no")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    "❓ Хотите еще добавить текст для перефразирования?",
+                    reply_markup=reply_markup
+                )
+                
+                return ASKING_MORE
+            
+            # If only one fragment after splitting, continue with normal flow
+            fragment = fragments[0] if fragments else None
+        else:
+            # No double newlines - treat as one fragment
+            fragment = ' '.join([line.strip() for line in text.split('\n') if line.strip()])
         
         if not fragment:
             await update.message.reply_text(
@@ -242,7 +289,12 @@ class TelegramBotInterface:
         # Handle both callback queries (buttons) and text messages
         if update.callback_query:
             query = update.callback_query
-            await query.answer()
+            try:
+                await query.answer()
+            except Exception as e:
+                # Handle expired callback queries gracefully
+                logger.warning(f"Callback query expired or invalid: {e}")
+                # Continue processing anyway
             choice = query.data
             message = query.message
         else:

@@ -30,11 +30,11 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Environment: {settings.app_env}")
     logger.info(f"Log level: {settings.log_level}")
-
+    
     if not settings.telegram_bot_token:
         logger.error("TELEGRAM_BOT_TOKEN not configured!")
         sys.exit(1)
-
+    
     port = int(os.getenv('PORT', '10000'))
     logger.info(f"Starting Uvicorn server on host 0.0.0.0:{port}")
     try:
