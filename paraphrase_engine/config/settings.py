@@ -46,6 +46,9 @@ class Settings:
     max_file_size_mb: int = int(os.getenv("MAX_FILE_SIZE_MB", "10"))
     file_retention_hours: int = int(os.getenv("FILE_RETENTION_HOURS", "24"))
     temp_files_dir: str = os.getenv("TEMP_FILES_DIR", "./temp_files")
+    max_parallel_tasks: int = int(os.getenv("MAX_PARALLEL_TASKS", "2"))
+    max_parallel_fragments: int = int(os.getenv("MAX_PARALLEL_FRAGMENTS", "4"))
+    fragment_throttle_seconds: float = float(os.getenv("FRAGMENT_THROTTLE_SECONDS", "0"))
     
     # Server Configuration
     host: str = os.getenv("HOST", "0.0.0.0")
@@ -77,6 +80,14 @@ class Settings:
         
         # Ensure temp files directory exists
         Path(self.temp_files_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Enforce sane concurrency defaults
+        if self.max_parallel_tasks < 1:
+            self.max_parallel_tasks = 1
+        if self.max_parallel_fragments < 1:
+            self.max_parallel_fragments = 1
+        if self.fragment_throttle_seconds < 0:
+            self.fragment_throttle_seconds = 0.0
 
 
 # Create settings instance

@@ -73,7 +73,8 @@ class TaskManager:
         self.document_builder = DocumentBuilder()
         self.system_logger = SystemLogger()
         self.database_manager = DatabaseManager()
-        self.processing_lock = asyncio.Lock()
+        self.task_semaphore = asyncio.Semaphore(settings.max_parallel_tasks)
+        self.fragment_semaphore = asyncio.Semaphore(settings.max_parallel_fragments)
         
         # Ensure tasks directory exists
         self.tasks_dir = Path(settings.temp_files_dir) / "tasks"
@@ -118,7 +119,7 @@ class TaskManager:
             logger.error(f"Task {task_id} not found")
             return None
         
-        async with self.processing_lock:
+        async with self.task_semaphore:
             try:
                 # Update task status
                 task.status = TaskStatus.PROCESSING
@@ -178,47 +179,56 @@ class TaskManager:
                 raise
     
     async def _process_fragments(self, task: Task) -> List[str]:
-        """Process fragments through the paraphrasing agent"""
-        paraphrased_fragments = []
+        """Process fragments through the paraphrasing agent with bounded parallelism"""
         total_fragments = len(task.fragments)
+        if total_fragments == 0:
+            return []
         
-        for i, fragment in enumerate(task.fragments, 1):
+        paraphrased_fragments: List[str] = [""] * total_fragments
+        throttle_delay = settings.fragment_throttle_seconds
+        
+        async def process_single_fragment(index: int, fragment: str):
+            """Process and store a single fragment result"""
+            fragment_number = index + 1
             try:
-                logger.info(f"Processing fragment {i}/{total_fragments} for task {task.task_id}")
+                logger.info(f"Processing fragment {fragment_number}/{total_fragments} for task {task.task_id}")
                 
-                # Call the paraphrasing agent for each fragment
-                paraphrased = await self.paraphrasing_agent.paraphrase(
-                    text=fragment,
-                    style="scientific-legal",  # As per requirements
-                    task_id=task.task_id,
-                    fragment_index=i
-                )
+                if throttle_delay > 0:
+                    await asyncio.sleep(throttle_delay)
                 
-                paraphrased_fragments.append(paraphrased)
+                async with self.fragment_semaphore:
+                    paraphrased = await self.paraphrasing_agent.paraphrase(
+                        text=fragment,
+                        style="scientific-legal",
+                        task_id=task.task_id,
+                        fragment_index=fragment_number
+                    )
                 
-                # Log progress
+                paraphrased_fragments[index] = paraphrased
+                
                 await self.system_logger.log_fragment_processed(
                     task_id=task.task_id,
-                    fragment_index=i,
+                    fragment_index=fragment_number,
                     total_fragments=total_fragments
                 )
                 
-                # Small delay to avoid rate limiting
-                if i < total_fragments:
-                    await asyncio.sleep(1)
-                    
             except Exception as e:
-                logger.error(f"Error processing fragment {i} for task {task.task_id}: {e}")
+                logger.error(f"Error processing fragment {fragment_number} for task {task.task_id}: {e}")
                 
-                # Use original fragment if paraphrasing fails
-                paraphrased_fragments.append(fragment)
+                paraphrased_fragments[index] = fragment
                 
-                # Log the error but continue
                 await self.system_logger.log_error(
                     task.chat_id,
-                    f"fragment_{i}",
+                    f"fragment_{fragment_number}",
                     str(e)
                 )
+        
+        fragment_tasks = [
+            asyncio.create_task(process_single_fragment(index, fragment))
+            for index, fragment in enumerate(task.fragments)
+        ]
+        
+        await asyncio.gather(*fragment_tasks)
         
         return paraphrased_fragments
     
