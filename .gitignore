@@ -49,6 +49,11 @@ credentials/
 google-sheets-key.json
 credentials.json
 token.json
+gen-lang-client*.json
+*.json
+!requirements.txt
+!package.json
+!tsconfig.json
 *.docx
 !test_document.docx
 
