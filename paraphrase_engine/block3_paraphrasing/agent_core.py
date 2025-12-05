@@ -94,7 +94,7 @@ Provide ONLY the refined version, without any explanations.
     def _initialize_providers(self):
         """Initialize available AI providers based on configuration - using only Gemini"""
         
-        # Используем только Google Gemini для избежания проблем с кодировкой
+        # Используем только Google Gemini
         if settings.google_api_key:
             try:
                 provider = GoogleGeminiProvider(api_key=settings.google_api_key)
@@ -102,6 +102,8 @@ Provide ONLY the refined version, without any explanations.
                 logger.info("Initialized Google Gemini provider")
             except Exception as e:
                 logger.warning(f"Failed to initialize Google Gemini provider: {e}")
+        else:
+            raise ValueError("Google API key is required. Please configure GOOGLE_API_KEY in .env file.")
         
         # OpenAI отключен из-за проблем с кодировкой Unicode
         # if settings.openai_api_key:
@@ -112,19 +114,19 @@ Provide ONLY the refined version, without any explanations.
         #     except Exception as e:
         #         logger.warning(f"Failed to initialize OpenAI provider: {e}")
         
-        # Anthropic оставлен как резервный вариант
-        if settings.anthropic_api_key:
-            try:
-                provider = AnthropicProvider(api_key=settings.anthropic_api_key)
-                self.providers.append(provider)
-                logger.info("Initialized Anthropic provider")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Anthropic provider: {e}")
+        # Anthropic отключен - используем только Gemini
+        # if settings.anthropic_api_key:
+        #     try:
+        #         provider = AnthropicProvider(api_key=settings.anthropic_api_key)
+        #         self.providers.append(provider)
+        #         logger.info("Initialized Anthropic provider")
+        #     except Exception as e:
+        #         logger.warning(f"Failed to initialize Anthropic provider: {e}")
         
         if not self.providers:
-            raise ValueError("No AI providers available. Please configure at least one API key.")
+            raise ValueError("No AI providers available. Please configure GOOGLE_API_KEY in .env file.")
         
-        logger.info(f"Initialized {len(self.providers)} AI providers")
+        logger.info(f"Initialized {len(self.providers)} AI provider(s) - using only Google Gemini")
     
     async def paraphrase(
         self,
