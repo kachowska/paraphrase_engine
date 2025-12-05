@@ -522,8 +522,37 @@ class TelegramBotInterface:
                     await message.reply_text("❌ Ошибка: Задача не найдена. Пожалуйста, попробуйте снова.")
                 return
             
+            # Create progress callback for sending updates to user
+            progress_messages = []  # Store sent messages to edit them
+            
+            async def progress_callback(text: str):
+                """Send or update progress message"""
+                try:
+                    if progress_messages:
+                        # Edit last message
+                        try:
+                            await progress_messages[-1].edit_text(text, parse_mode='Markdown')
+                        except Exception:
+                            # If edit fails, send new message
+                            msg = await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=text,
+                                parse_mode='Markdown'
+                            )
+                            progress_messages.append(msg)
+                    else:
+                        # Send first message
+                        msg = await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=text,
+                            parse_mode='Markdown'
+                        )
+                        progress_messages.append(msg)
+                except Exception as e:
+                    logger.warning(f"Failed to send progress update: {e}")
+            
             # Process task (this will orchestrate blocks 3 and 4)
-            result_file_path = await self.task_manager.process_task(task_id)
+            result_file_path = await self.task_manager.process_task(task_id, progress_callback=progress_callback)
             
             # Check if processing was successful
             if not result_file_path or not os.path.exists(result_file_path):

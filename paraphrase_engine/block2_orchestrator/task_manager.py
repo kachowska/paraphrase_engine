@@ -109,7 +109,7 @@ class TaskManager:
         
         return task_id
     
-    async def process_task(self, task_id: str) -> Optional[str]:
+    async def process_task(self, task_id: str, progress_callback=None) -> Optional[str]:
         """
         Process a task through the entire pipeline
         Returns the path to the result file if successful, None otherwise
@@ -127,12 +127,28 @@ class TaskManager:
                 
                 logger.info(f"Starting processing for task {task_id}")
                 
+                # Send initial progress message
+                if progress_callback:
+                    await progress_callback(
+                        f"🚀 *Начало обработки*\n\n"
+                        f"📊 Всего фрагментов: {len(task.fragments)}\n"
+                        f"⏳ Начинаю перефразирование..."
+                    )
+                
                 # Step 1: Process each fragment through the paraphrasing agent
-                paraphrased_fragments = await self._process_fragments(task)
+                paraphrased_fragments = await self._process_fragments(task, progress_callback)
                 task.paraphrased_fragments = paraphrased_fragments
                 
+                # Send progress after paraphrasing
+                if progress_callback:
+                    await progress_callback(
+                        f"✅ *Перефразирование завершено*\n\n"
+                        f"📝 Обработано: {len(paraphrased_fragments)}/{len(task.fragments)} фрагментов\n"
+                        f"📄 Начинаю замену текста в документе..."
+                    )
+                
                 # Step 2: Build the new document with replacements
-                result_file_path = await self._build_document(task)
+                result_file_path = await self._build_document(task, progress_callback)
                 
                 # Update task with results
                 task.result_file_path = result_file_path
@@ -178,7 +194,7 @@ class TaskManager:
                 
                 raise
     
-    async def _process_fragments(self, task: Task) -> List[str]:
+    async def _process_fragments(self, task: Task, progress_callback=None) -> List[str]:
         """Process fragments through the paraphrasing agent with bounded parallelism"""
         total_fragments = len(task.fragments)
         if total_fragments == 0:
@@ -186,9 +202,12 @@ class TaskManager:
         
         paraphrased_fragments: List[str] = [""] * total_fragments
         throttle_delay = settings.fragment_throttle_seconds
+        processed_count = 0
+        last_progress_update = 0
         
         async def process_single_fragment(index: int, fragment: str):
             """Process and store a single fragment result"""
+            nonlocal processed_count, last_progress_update
             fragment_number = index + 1
             try:
                 logger.info(f"Processing fragment {fragment_number}/{total_fragments} for task {task.task_id}")
@@ -205,12 +224,32 @@ class TaskManager:
                     )
                 
                 paraphrased_fragments[index] = paraphrased
+                processed_count += 1
                 
                 await self.system_logger.log_fragment_processed(
                     task_id=task.task_id,
                     fragment_index=fragment_number,
                     total_fragments=total_fragments
                 )
+                
+                # Send progress update every 10 fragments or at milestones (25%, 50%, 75%)
+                progress_percent = int((processed_count / total_fragments) * 100)
+                milestones = [25, 50, 75]
+                should_update = (
+                    processed_count % 10 == 0 or  # Every 10 fragments
+                    progress_percent in milestones and progress_percent != last_progress_update or  # At milestones
+                    processed_count == total_fragments  # Final update
+                )
+                
+                if should_update and progress_callback:
+                    last_progress_update = progress_percent
+                    progress_bar = "█" * (progress_percent // 5) + "░" * (20 - progress_percent // 5)
+                    await progress_callback(
+                        f"🔄 *Перефразирование в процессе*\n\n"
+                        f"📊 Прогресс: {processed_count}/{total_fragments} фрагментов\n"
+                        f"📈 {progress_percent}% {progress_bar}\n"
+                        f"⏳ Пожалуйста, подождите..."
+                    )
                 
             except Exception as e:
                 logger.error(f"Error processing fragment {fragment_number} for task {task.task_id}: {e}")
@@ -232,7 +271,7 @@ class TaskManager:
         
         return paraphrased_fragments
     
-    async def _build_document(self, task: Task) -> str:
+    async def _build_document(self, task: Task, progress_callback=None) -> str:
         """Build the final document with replacements"""
         try:
             # Generate output file path
@@ -240,12 +279,21 @@ class TaskManager:
             output_filename = f"processed_{task.chat_id}_{timestamp}.docx"
             output_path = str(self.tasks_dir / output_filename)
             
-            # Call document builder
+            # Send progress message
+            if progress_callback:
+                await progress_callback(
+                    f"📝 *Замена текста в документе*\n\n"
+                    f"🔍 Ищу фрагменты в документе и заменяю их...\n"
+                    f"⏳ Это может занять некоторое время..."
+                )
+            
+            # Call document builder with progress callback
             success = await self.document_builder.replace_fragments(
                 source_file_path=task.file_path,
                 output_file_path=output_path,
                 original_fragments=task.fragments,
-                paraphrased_fragments=task.paraphrased_fragments
+                paraphrased_fragments=task.paraphrased_fragments,
+                progress_callback=progress_callback
             )
             
             if not success:

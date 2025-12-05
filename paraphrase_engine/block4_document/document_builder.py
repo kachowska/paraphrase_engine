@@ -30,7 +30,8 @@ class DocumentBuilder:
         source_file_path: str,
         output_file_path: str,
         original_fragments: List[str],
-        paraphrased_fragments: List[str]
+        paraphrased_fragments: List[str],
+        progress_callback=None
     ) -> bool:
         """
         Replace fragments in document
@@ -61,12 +62,24 @@ class DocumentBuilder:
             # Process replacements in REVERSE order (critical requirement)
             replacements_made = 0
             skipped_fragments = []
+            total_fragments = len(original_fragments)
             
             for i in range(len(original_fragments) - 1, -1, -1):
                 original = original_fragments[i]
                 paraphrased = paraphrased_fragments[i]
+                fragment_number = i + 1
                 
-                logger.info(f"Processing fragment {i + 1}/{len(original_fragments)} (reverse order)")
+                logger.info(f"Processing fragment {fragment_number}/{total_fragments} (reverse order)")
+                
+                # Send progress update every 20 fragments or at milestones
+                if progress_callback and (fragment_number % 20 == 0 or fragment_number in [total_fragments, total_fragments // 2, total_fragments // 4]):
+                    progress_percent = int(((total_fragments - i) / total_fragments) * 100)
+                    await progress_callback(
+                        f"📝 *Замена в документе*\n\n"
+                        f"🔍 Обработано: {total_fragments - i}/{total_fragments} фрагментов\n"
+                        f"📈 {progress_percent}%\n"
+                        f"✅ Найдено и заменено: {replacements_made}"
+                    )
                 
                 # Try to replace the fragment
                 replaced = await self._replace_fragment_in_document(
@@ -203,7 +216,7 @@ class DocumentBuilder:
                         if success:
                             replacement_made = True
                             logger.info(f"Replaced fragment {fragment_index} in paragraph (multi-paragraph normalized match)")
-                            break
+                        break
         
         # Also check in tables
         if not replacement_made:
@@ -278,7 +291,7 @@ class DocumentBuilder:
                             if success:
                                 replacement_made = True
                                 logger.info(f"Replaced fragment {fragment_index} in paragraph (keyword-based match, {matching_words}/{len(words)} words)")
-                                break
+                    break
         
         if not replacement_made:
             logger.warning(
