@@ -80,33 +80,33 @@ class TelegramBotInterface:
         if not update.message or not update.effective_chat or not update.effective_user:
             return ConversationHandler.END
         
-            chat_id = update.effective_chat.id
+        chat_id = update.effective_chat.id
         user_name = update.effective_user.username or "User"
-            
+        
         # Initialize session
-            self.user_sessions[chat_id] = {
-                "chat_id": chat_id,
-                "user_name": user_name,
-                "start_time": datetime.now(),
-                "file_path": None,
-                "fragments": []
-            }
-            
-            # Log new session
-            await self.system_logger.log_task_start(chat_id, user_name)
-            
-            welcome_message = (
-                "🎯 Welcome to Paraphrase Engine v1.0!\n\n"
-                "I will help you professionally rewrite text fragments while preserving "
-                "their academic style and meaning.\n\n"
-                "📋 *Step 1:* Please upload your document in .docx format."
-            )
-            
-            await update.message.reply_text(
-                welcome_message,
-                parse_mode='Markdown'
-            )
-            
+        self.user_sessions[chat_id] = {
+            "chat_id": chat_id,
+            "user_name": user_name,
+            "start_time": datetime.now(),
+            "file_path": None,
+            "fragments": []
+        }
+        
+        # Log new session
+        await self.system_logger.log_task_start(chat_id, user_name)
+        
+        welcome_message = (
+            "🎯 Welcome to Paraphrase Engine v1.0!\n\n"
+            "I will help you professionally rewrite text fragments while preserving "
+            "their academic style and meaning.\n\n"
+            "📋 *Step 1:* Please upload your document in .docx format."
+        )
+        
+        await update.message.reply_text(
+            welcome_message,
+            parse_mode='Markdown'
+        )
+        
         return WAITING_FOR_FILE
     
     async def continue_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -311,7 +311,7 @@ class TelegramBotInterface:
             fragment = fragments[0] if fragments else None
         else:
             # No double newlines - treat as one fragment
-        fragment = ' '.join([line.strip() for line in text.split('\n') if line.strip()])
+            fragment = ' '.join([line.strip() for line in text.split('\n') if line.strip()])
         
         if not fragment:
             await update.message.reply_text(
@@ -366,7 +366,7 @@ class TelegramBotInterface:
         if update.callback_query:
             query = update.callback_query
             try:
-            await query.answer()
+                await query.answer()
             except Exception as e:
                 # Handle expired callback queries gracefully
                 logger.warning(f"Callback query expired or invalid: {e}")
@@ -385,14 +385,14 @@ class TelegramBotInterface:
                 choice = "more_no"
             else:
                 if update.message:
-                await update.message.reply_text(
-                    "❓ Пожалуйста, ответьте «да» или «нет».\n"
-                    "Или используйте кнопки ниже.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("✅ Да", callback_data="more_yes"),
-                        InlineKeyboardButton("❌ Нет", callback_data="more_no")
-                    ]])
-                )
+                    await update.message.reply_text(
+                        "❓ Пожалуйста, ответьте «да» или «нет».\n"
+                        "Или используйте кнопки ниже.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("✅ Да", callback_data="more_yes"),
+                            InlineKeyboardButton("❌ Нет", callback_data="more_no")
+                        ]])
+                    )
                 return ASKING_MORE
             message = update.message
         
@@ -452,10 +452,10 @@ class TelegramBotInterface:
                     )
             else:
                 # New document processing
-            await message.reply_text(
-                f"✅ Принято {len(fragments)} фрагмент(ов). Начинаю обработку...\n"
-                f"⏳ Это может занять некоторое время. Пожалуйста, подождите."
-            )
+                await message.reply_text(
+                    f"✅ Принято {len(fragments)} фрагмент(ов). Начинаю обработку...\n"
+                    f"⏳ Это может занять некоторое время. Пожалуйста, подождите."
+                )
             
             # Process all fragments
             await self.process_task(update, context, chat_id)
@@ -483,9 +483,9 @@ class TelegramBotInterface:
             fragments = session.get("fragments", [])
             if not fragments:
                 if message:
-                await message.reply_text(
-                    "❌ Не найдено фрагментов для обработки."
-                )
+                    await message.reply_text(
+                        "❌ Не найдено фрагментов для обработки."
+                    )
                 return
             
             # Create task in task manager (without fragments - they are added iteratively)
@@ -504,7 +504,7 @@ class TelegramBotInterface:
             else:
                 logger.error(f"Task {task_id} not found after creation")
                 if message:
-                await message.reply_text("❌ Ошибка: Задача не найдена. Пожалуйста, попробуйте снова.")
+                    await message.reply_text("❌ Ошибка: Задача не найдена. Пожалуйста, попробуйте снова.")
                 return
             
             # Process task (this will orchestrate blocks 3 and 4)
@@ -576,7 +576,7 @@ class TelegramBotInterface:
             error_message += f"Детали ошибки: {str(e)[:200]}"
             
             if message:
-            await message.reply_text(error_message)
+                await message.reply_text(error_message)
             
             # Cleanup session on error
             await self.cleanup_session(chat_id)
@@ -656,7 +656,7 @@ class TelegramBotInterface:
             if self.application and self.application.bot:
                 await self.application.bot.set_my_commands(commands)
             logger.info("✅ Команды бота установлены: /start, /process_report, /cancel")
-            except Exception as e:
+        except Exception as e:
             logger.warning(f"⚠️ Не удалось установить команды бота: {e}")
     
     def run(self):
