@@ -139,8 +139,10 @@ class DocumentBuilder:
         # Track if replacement was made
         replacement_made = False
         
-        # Search through all paragraphs
-        for paragraph in doc.paragraphs:
+        # Search through all paragraphs (including multi-paragraph search)
+        paragraphs_list = list(doc.paragraphs)
+        
+        for i, paragraph in enumerate(paragraphs_list):
             paragraph_text = paragraph.text
             paragraph_normalized = self._normalize_text(paragraph_text)
             
@@ -158,7 +160,7 @@ class DocumentBuilder:
                     logger.info(f"Replaced fragment {fragment_index} in paragraph (exact match)")
                     break
             
-            # If exact match failed, try normalized match
+            # If exact match failed, try normalized match in single paragraph
             elif original_normalized in paragraph_normalized:
                 # Try to find the actual text in the paragraph (accounting for whitespace differences)
                 actual_text = self._find_actual_text_in_paragraph(paragraph, original_normalized)
@@ -174,6 +176,34 @@ class DocumentBuilder:
                         replacement_made = True
                         logger.info(f"Replaced fragment {fragment_index} in paragraph (normalized match)")
                         break
+            
+            # If still not found, try searching across multiple paragraphs (for fragments split across lines)
+            if not replacement_made and i < len(paragraphs_list) - 1:
+                # Combine current paragraph with next 2 paragraphs
+                combined_text = paragraph_text
+                combined_normalized = paragraph_normalized
+                
+                for j in range(1, min(3, len(paragraphs_list) - i)):
+                    next_para = paragraphs_list[i + j]
+                    combined_text += " " + next_para.text
+                    combined_normalized += " " + self._normalize_text(next_para.text)
+                
+                # Check normalized match in combined text
+                if original_normalized in combined_normalized:
+                    # Try to find in the first paragraph that contains part of the fragment
+                    actual_text = self._find_actual_text_in_paragraph(paragraph, original_normalized)
+                    
+                    if actual_text:
+                        success = self._replace_in_paragraph_with_formatting(
+                            paragraph,
+                            actual_text,
+                            replacement_text
+                        )
+                        
+                        if success:
+                            replacement_made = True
+                            logger.info(f"Replaced fragment {fragment_index} in paragraph (multi-paragraph normalized match)")
+                            break
         
         # Also check in tables
         if not replacement_made:
@@ -221,6 +251,34 @@ class DocumentBuilder:
                 
                 if replacement_made:
                     break
+        
+        # If still not found, try keyword-based search (last resort)
+        if not replacement_made:
+            # Extract meaningful words from the fragment (remove common words, numbers, short words)
+            import re
+            words = re.findall(r'\b\w{4,}\b', original_normalized)  # Words with 4+ characters
+            if len(words) >= 3:  # Need at least 3 meaningful words
+                # Search for paragraphs containing at least 2 of these words
+                for paragraph in doc.paragraphs:
+                    para_normalized = self._normalize_text(paragraph.text)
+                    matching_words = sum(1 for word in words if word.lower() in para_normalized.lower())
+                    
+                    if matching_words >= 2:  # At least 2 words match
+                        # Try to find a substring that contains these words
+                        # Use the longest matching substring
+                        best_match = self._find_best_keyword_match(paragraph, words, original_normalized)
+                        
+                        if best_match:
+                            success = self._replace_in_paragraph_with_formatting(
+                                paragraph,
+                                best_match,
+                                replacement_text
+                            )
+                            
+                            if success:
+                                replacement_made = True
+                                logger.info(f"Replaced fragment {fragment_index} in paragraph (keyword-based match, {matching_words}/{len(words)} words)")
+                                break
         
         if not replacement_made:
             logger.warning(
@@ -433,8 +491,16 @@ class DocumentBuilder:
         Normalize text for comparison
         Handles different whitespace, line breaks, etc.
         Uses soft normalization to preserve text structure
+        Removes PDF artifacts like page numbers and citations
         """
         import re
+        # Remove PDF artifacts: page numbers, citations like [39, c. 126], [14], etc.
+        # Pattern: [number, c. number] or [number] or "с. number" or standalone numbers
+        text = re.sub(r'\[\d+[,\s]*(?:[сc]\.\s*)?\d*\]', '', text)  # [39, c. 126] or [14]
+        text = re.sub(r'[сc]\.\s*\d+', '', text)  # с. 51
+        text = re.sub(r'^\d+\s+\d+\s*', '', text)  # "61 19 января" -> "19 января"
+        text = re.sub(r'^\d+\s*$', '', text, flags=re.MULTILINE)  # Standalone numbers on lines
+        
         # Normalize line endings first
         text = text.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
         # Replace multiple spaces/tabs with single space (but preserve single spaces)
@@ -571,6 +637,71 @@ class DocumentBuilder:
         candidate_normalized = self._normalize_text(candidate)
         if candidate_normalized.lower() == normalized_search.lower():
             return candidate
+        
+        return None
+    
+    def _find_best_keyword_match(
+        self,
+        paragraph: Paragraph,
+        keywords: list,
+        normalized_search: str
+    ) -> Optional[str]:
+        """
+        Find the best matching text in paragraph based on keywords
+        Returns the actual text that best matches the search string
+        """
+        para_text = paragraph.text
+        para_normalized = self._normalize_text(para_text)
+        
+        # Find positions of all keywords
+        keyword_positions = []
+        for keyword in keywords:
+            pos = para_normalized.lower().find(keyword.lower())
+            if pos != -1:
+                keyword_positions.append(pos)
+        
+        if len(keyword_positions) < 2:
+            return None
+        
+        # Find the span that contains all keywords
+        min_pos = min(keyword_positions)
+        max_pos = max(keyword_positions) + max(len(kw) for kw in keywords)
+        
+        # Extract candidate text (with some padding)
+        # Map normalized positions back to actual text
+        norm_index = 0
+        actual_start = 0
+        actual_end = len(para_text)
+        
+        for i, char in enumerate(para_text):
+            char_norm = self._normalize_text(char)
+            if char_norm:
+                if norm_index <= min_pos < norm_index + len(char_norm):
+                    actual_start = i
+                if norm_index <= max_pos < norm_index + len(char_norm):
+                    actual_end = i + 1
+                    break
+                norm_index += len(char_norm)
+        
+        # Extract candidate with some context
+        padding = 50  # Add some context
+        actual_start = max(0, actual_start - padding)
+        actual_end = min(len(para_text), actual_end + padding)
+        
+        candidate = para_text[actual_start:actual_end]
+        candidate_normalized = self._normalize_text(candidate)
+        
+        # Check if normalized candidate contains the search string (or most of it)
+        if len(normalized_search) > 0:
+            # Calculate similarity (simple word overlap)
+            search_words = set(normalized_search.lower().split())
+            candidate_words = set(candidate_normalized.lower().split())
+            overlap = len(search_words & candidate_words)
+            similarity = overlap / len(search_words) if search_words else 0
+            
+            # Return if similarity is high enough (at least 60% word overlap)
+            if similarity >= 0.6:
+                return candidate
         
         return None
     
