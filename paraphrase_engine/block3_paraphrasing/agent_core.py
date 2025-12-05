@@ -29,7 +29,7 @@ class ParaphraseCandidate:
     original_text: str
     paraphrased_text: str
     score: float = 0.0
-    metadata: Dict[str, Any] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class ParaphrasingAgent:
@@ -209,7 +209,7 @@ Provide ONLY the refined version, without any explanations.
                 logger.warning(f"Provider {self.providers[i].name} failed: {result}")
                 continue
             
-            if result:
+            if result and isinstance(result, ParaphraseCandidate):
                 candidates.append(result)
                 logger.info(f"Generated candidate from {result.provider}")
         

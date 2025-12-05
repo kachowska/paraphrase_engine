@@ -89,7 +89,10 @@ class OpenAIProvider(AIProvider):
                 timeout=settings.ai_timeout_seconds
             )
             
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("OpenAI API returned empty content")
+            return content.strip()
             
         except Exception as e:
             logger.error(f"OpenAI generation error: {e}")
@@ -169,8 +172,8 @@ class AnthropicProvider(AIProvider):
                 # Extract text from response
                 if response.content and len(response.content) > 0:
                     content_item = response.content[0]
-                    if hasattr(content_item, 'text'):
-                        result = content_item.text.strip()
+                    if hasattr(content_item, 'text') and content_item.text:
+                        result = str(content_item.text).strip()
                         if model_name != self.model:
                             logger.info(f"Successfully used fallback model: {model_name}")
                         return result
