@@ -74,12 +74,15 @@ class DocumentBuilder:
                 # Send progress update every 20 fragments or at milestones
                 if progress_callback and (fragment_number % 20 == 0 or fragment_number in [total_fragments, total_fragments // 2, total_fragments // 4]):
                     progress_percent = int(((total_fragments - i) / total_fragments) * 100)
-                    await progress_callback(
-                        f"📝 *Замена в документе*\n\n"
-                        f"🔍 Обработано: {total_fragments - i}/{total_fragments} фрагментов\n"
-                        f"📈 {progress_percent}%\n"
-                        f"✅ Найдено и заменено: {replacements_made}"
-                    )
+                    try:
+                        await progress_callback(
+                            f"📝 *Замена в документе*\n\n"
+                            f"🔍 Обработано: {total_fragments - i}/{total_fragments} фрагментов\n"
+                            f"📈 {progress_percent}%\n"
+                            f"✅ Найдено и заменено: {replacements_made}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Error sending progress update during document replacement: {e}")
                 
                 # Try to replace the fragment
                 replaced = await self._replace_fragment_in_document(

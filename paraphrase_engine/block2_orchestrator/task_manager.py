@@ -129,11 +129,17 @@ class TaskManager:
                 
                 # Send initial progress message
                 if progress_callback:
-                    await progress_callback(
-                        f"🚀 *Начало обработки*\n\n"
-                        f"📊 Всего фрагментов: {len(task.fragments)}\n"
-                        f"⏳ Начинаю перефразирование..."
-                    )
+                    logger.info(f"Calling progress_callback for initial message (task {task_id})")
+                    try:
+                        await progress_callback(
+                            f"🚀 *Начало обработки*\n\n"
+                            f"📊 Всего фрагментов: {len(task.fragments)}\n"
+                            f"⏳ Начинаю перефразирование..."
+                        )
+                    except Exception as e:
+                        logger.error(f"Error calling progress_callback: {e}", exc_info=True)
+                else:
+                    logger.warning(f"No progress_callback provided for task {task_id}")
                 
                 # Step 1: Process each fragment through the paraphrasing agent
                 paraphrased_fragments = await self._process_fragments(task, progress_callback)
@@ -141,11 +147,14 @@ class TaskManager:
                 
                 # Send progress after paraphrasing
                 if progress_callback:
-                    await progress_callback(
-                        f"✅ *Перефразирование завершено*\n\n"
-                        f"📝 Обработано: {len(paraphrased_fragments)}/{len(task.fragments)} фрагментов\n"
-                        f"📄 Начинаю замену текста в документе..."
-                    )
+                    try:
+                        await progress_callback(
+                            f"✅ *Перефразирование завершено*\n\n"
+                            f"📝 Обработано: {len(paraphrased_fragments)}/{len(task.fragments)} фрагментов\n"
+                            f"📄 Начинаю замену текста в документе..."
+                        )
+                    except Exception as e:
+                        logger.error(f"Error calling progress_callback after paraphrasing: {e}", exc_info=True)
                 
                 # Step 2: Build the new document with replacements
                 result_file_path = await self._build_document(task, progress_callback)
@@ -237,19 +246,23 @@ class TaskManager:
                 milestones = [25, 50, 75]
                 should_update = (
                     processed_count % 10 == 0 or  # Every 10 fragments
-                    progress_percent in milestones and progress_percent != last_progress_update or  # At milestones
+                    (progress_percent in milestones and progress_percent != last_progress_update) or  # At milestones
                     processed_count == total_fragments  # Final update
                 )
                 
                 if should_update and progress_callback:
                     last_progress_update = progress_percent
                     progress_bar = "█" * (progress_percent // 5) + "░" * (20 - progress_percent // 5)
-                    await progress_callback(
-                        f"🔄 *Перефразирование в процессе*\n\n"
-                        f"📊 Прогресс: {processed_count}/{total_fragments} фрагментов\n"
-                        f"📈 {progress_percent}% {progress_bar}\n"
-                        f"⏳ Пожалуйста, подождите..."
-                    )
+                    try:
+                        await progress_callback(
+                            f"🔄 *Перефразирование в процессе*\n\n"
+                            f"📊 Прогресс: {processed_count}/{total_fragments} фрагментов\n"
+                            f"📈 {progress_percent}% {progress_bar}\n"
+                            f"⏳ Пожалуйста, подождите..."
+                        )
+                        logger.debug(f"Sent progress update: {processed_count}/{total_fragments} ({progress_percent}%)")
+                    except Exception as e:
+                        logger.error(f"Error sending progress update: {e}", exc_info=True)
                 
             except Exception as e:
                 logger.error(f"Error processing fragment {fragment_number} for task {task.task_id}: {e}")

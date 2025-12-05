@@ -528,18 +528,22 @@ class TelegramBotInterface:
             async def progress_callback(text: str):
                 """Send or update progress message"""
                 try:
+                    logger.info(f"Sending progress update to chat {chat_id}: {text[:50]}...")
                     if progress_messages:
                         # Edit last message
                         try:
                             await progress_messages[-1].edit_text(text, parse_mode='Markdown')
-                        except Exception:
-                            # If edit fails, send new message
+                            logger.debug(f"Updated progress message for chat {chat_id}")
+                        except Exception as edit_error:
+                            # If edit fails (e.g., message too old), send new message
+                            logger.warning(f"Failed to edit message, sending new: {edit_error}")
                             msg = await context.bot.send_message(
                                 chat_id=chat_id,
                                 text=text,
                                 parse_mode='Markdown'
                             )
                             progress_messages.append(msg)
+                            logger.info(f"Sent new progress message to chat {chat_id}")
                     else:
                         # Send first message
                         msg = await context.bot.send_message(
@@ -548,8 +552,9 @@ class TelegramBotInterface:
                             parse_mode='Markdown'
                         )
                         progress_messages.append(msg)
+                        logger.info(f"Sent initial progress message to chat {chat_id}")
                 except Exception as e:
-                    logger.warning(f"Failed to send progress update: {e}")
+                    logger.error(f"Failed to send progress update to chat {chat_id}: {e}", exc_info=True)
             
             # Process task (this will orchestrate blocks 3 and 4)
             result_file_path = await self.task_manager.process_task(task_id, progress_callback=progress_callback)
