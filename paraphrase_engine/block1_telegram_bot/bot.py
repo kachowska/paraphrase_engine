@@ -23,12 +23,13 @@ from datetime import datetime
 from ..config import settings
 from ..block2_orchestrator.task_manager import TaskManager
 from ..block5_logging.logger import SystemLogger
+from ..block4_document import PDFReportExtractor, PlagiarismFragment
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Conversation states
-WAITING_FOR_FILE, WAITING_FOR_FRAGMENT, ASKING_MORE = range(3)
+WAITING_FOR_FILE, WAITING_FOR_FRAGMENT, ASKING_MORE, WAITING_FOR_REPORT_PDF, WAITING_FOR_SOURCE_DOCX = range(5)
 
 
 class TelegramBotInterface:
@@ -68,10 +69,24 @@ class TelegramBotInterface:
             fallbacks=[CommandHandler('cancel', self.cancel_command)],
         )
         
-        # Add command handler for /process_report
-        self.application.add_handler(CommandHandler('process_report', self.process_report_command))
+        # Create report processing conversation handler
+        report_conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler('process_report', self.process_report_command)
+            ],
+            states={
+                WAITING_FOR_REPORT_PDF: [
+                    MessageHandler(filters.Document.ALL, self.handle_report_pdf),
+                ],
+                WAITING_FOR_SOURCE_DOCX: [
+                    MessageHandler(filters.Document.ALL, self.handle_source_docx),
+                ],
+            },
+            fallbacks=[CommandHandler('cancel', self.cancel_command)],
+        )
         
-        # Add handlers
+        # Add handlers (report handler first to catch /process_report)
+        self.application.add_handler(report_conv_handler)
         self.application.add_handler(conv_handler)
         self.application.add_error_handler(self.error_handler)
         
@@ -621,29 +636,223 @@ class TelegramBotInterface:
                     text="❌ An unexpected error occurred. Please try again with /start"
                 )
     
-    async def process_report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def process_report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /process_report command - обработка PDF-отчетов Антиплагиата"""
-        if not update.message:
-            return
+        if not update.message or not update.effective_chat:
+            return ConversationHandler.END
+        
+        chat_id = update.effective_chat.id
+        
+        # Initialize session for report processing
+        self.user_sessions[chat_id] = {
+            "chat_id": chat_id,
+            "user_name": update.effective_user.username or "User" if update.effective_user else "User",
+            "start_time": datetime.now(),
+            "file_path": None,
+            "fragments": [],
+            "report_mode": True,
+            "pdf_path": None,
+            "extracted_fragments": []
+        }
+        
+        await update.message.reply_text(
+            "📊 Обработка PDF-отчетов Антиплагиата\n\n"
+            "📄 Шаг 1: Загрузите PDF-отчет Антиплагиата.\n"
+            "Бот автоматически извлечет выделенные фрагменты плагиата."
+        )
+        
+        logger.info(f"/process_report command received from {chat_id}")
+        return WAITING_FOR_REPORT_PDF
+    
+    async def handle_report_pdf(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle PDF report file upload"""
+        if not update.message or not update.effective_chat:
+            return ConversationHandler.END
+        
+        chat_id = update.effective_chat.id
+        
+        if chat_id not in self.user_sessions:
+            await update.message.reply_text(
+                "❌ Сессия истекла. Пожалуйста, начните заново с /process_report"
+            )
+            return ConversationHandler.END
+        
+        if not update.message.document:
+            await update.message.reply_text(
+                "❌ Не найден файл в сообщении."
+            )
+            return WAITING_FOR_REPORT_PDF
+        
+        document: Document = update.message.document
+        
+        # Validate file format
+        if not document.file_name or not document.file_name.lower().endswith('.pdf'):
+            await update.message.reply_text(
+                "❌ Пожалуйста, загрузите PDF-файл (.pdf)"
+            )
+            return WAITING_FOR_REPORT_PDF
+        
+        # Check file size
+        if document.file_size is None:
+            await update.message.reply_text(
+                "❌ Не удалось определить размер файла."
+            )
+            return WAITING_FOR_REPORT_PDF
+        
+        file_size_mb = document.file_size / (1024 * 1024)
+        if file_size_mb > settings.max_file_size_mb:
+            await update.message.reply_text(
+                f"❌ Размер файла превышает {settings.max_file_size_mb}MB."
+            )
+            return WAITING_FOR_REPORT_PDF
         
         try:
+            # Download PDF file
+            file = await context.bot.get_file(document.file_id)
+            temp_dir = Path(settings.temp_files_dir)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            pdf_path = temp_dir / f"report_{chat_id}_{document.file_id}.pdf"
+            
+            await file.download_to_drive(pdf_path)
+            
+            # Extract plagiarism fragments
             await update.message.reply_text(
-                "📊 Обработка PDF-отчетов Антиплагиата\n\n"
-                "⚠️ Эта функция находится в разработке.\n\n"
-                "В ближайшее время вы сможете:\n"
-                "• Загрузить PDF-отчет Антиплагиата\n"
-                "• Автоматически извлечь выделенные фрагменты\n"
-                "• Получить перефразированный документ\n\n"
-                "Пока используйте команду /start для обычной работы с документами."
+                "⏳ Анализирую PDF-отчет и извлекаю фрагменты плагиата..."
             )
-            if update.effective_user:
-                logger.info(f"/process_report command received from {update.effective_user.id}")
+            
+            extractor = PDFReportExtractor()
+            fragments = extractor.extract_plagiarism_fragments(str(pdf_path))
+            
+            if not fragments:
+                await update.message.reply_text(
+                    "⚠️ В отчете не найдено выделенных фрагментов плагиата.\n"
+                    "Убедитесь, что отчет содержит выделенные оранжевым/красным цветом фрагменты."
+                )
+                # Cleanup
+                if pdf_path.exists():
+                    pdf_path.unlink()
+                return ConversationHandler.END
+            
+            # Store extracted fragments
+            self.user_sessions[chat_id]["pdf_path"] = str(pdf_path)
+            self.user_sessions[chat_id]["extracted_fragments"] = [f.text for f in fragments]
+            
+            await update.message.reply_text(
+                f"✅ Найдено {len(fragments)} фрагмент(ов) плагиата.\n\n"
+                "📄 Шаг 2: Загрузите исходный DOCX документ для замены фрагментов."
+            )
+            
+            return WAITING_FOR_SOURCE_DOCX
+            
         except Exception as e:
-            logger.error(f"Error in process_report_command: {e}", exc_info=True)
-            try:
-                await update.message.reply_text("❌ Произошла ошибка при обработке команды.")
-            except:
-                pass
+            logger.error(f"Error handling PDF report: {e}", exc_info=True)
+            await self.system_logger.log_error(chat_id, "pdf_report_processing", str(e))
+            await update.message.reply_text(
+                "❌ Ошибка при обработке PDF-отчета. Пожалуйста, попробуйте снова."
+            )
+            return ConversationHandler.END
+    
+    async def handle_source_docx(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle source DOCX file for report processing"""
+        if not update.message or not update.effective_chat:
+            return ConversationHandler.END
+        
+        chat_id = update.effective_chat.id
+        
+        if chat_id not in self.user_sessions:
+            await update.message.reply_text(
+                "❌ Сессия истекла. Пожалуйста, начните заново с /process_report"
+            )
+            return ConversationHandler.END
+        
+        if not update.message.document:
+            await update.message.reply_text(
+                "❌ Не найден файл в сообщении."
+            )
+            return WAITING_FOR_SOURCE_DOCX
+        
+        document: Document = update.message.document
+        
+        # Validate file format
+        if not document.file_name or not document.file_name.lower().endswith('.docx'):
+            await update.message.reply_text(
+                "❌ Пожалуйста, загрузите DOCX-файл (.docx)"
+            )
+            return WAITING_FOR_SOURCE_DOCX
+        
+        # Check file size
+        if document.file_size is None:
+            await update.message.reply_text(
+                "❌ Не удалось определить размер файла."
+            )
+            return WAITING_FOR_SOURCE_DOCX
+        
+        file_size_mb = document.file_size / (1024 * 1024)
+        if file_size_mb > settings.max_file_size_mb:
+            await update.message.reply_text(
+                f"❌ Размер файла превышает {settings.max_file_size_mb}MB."
+            )
+            return WAITING_FOR_SOURCE_DOCX
+        
+        try:
+            # Download DOCX file
+            file = await context.bot.get_file(document.file_id)
+            temp_dir = Path(settings.temp_files_dir)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            docx_path = temp_dir / f"source_{chat_id}_{document.file_id}.docx"
+            
+            await file.download_to_drive(docx_path)
+            
+            # Store file path and extracted fragments
+            self.user_sessions[chat_id]["file_path"] = str(docx_path)
+            self.user_sessions[chat_id]["fragments"] = self.user_sessions[chat_id]["extracted_fragments"]
+            
+            await update.message.reply_text(
+                f"✅ Документ принят. Найдено {len(self.user_sessions[chat_id]['fragments'])} фрагмент(ов) для обработки.\n"
+                "⏳ Начинаю перефразирование и замену фрагментов...\n"
+                "Это может занять некоторое время. Пожалуйста, подождите."
+            )
+            
+            # Create task and process
+            task_id = await self.task_manager.create_task(
+                chat_id=chat_id,
+                file_path=str(docx_path)
+            )
+            
+            task = self.task_manager.tasks.get(task_id)
+            if task:
+                task.fragments = self.user_sessions[chat_id]["fragments"]
+                task.metadata = {"report_mode": True, "pdf_path": self.user_sessions[chat_id].get("pdf_path")}
+                await self.task_manager._save_task_to_disk(task)
+            
+            # Process task
+            result_file_path = await self.task_manager.process_task(task_id)
+            
+            if result_file_path and os.path.exists(result_file_path):
+                with open(result_file_path, 'rb') as f:
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=f,
+                        caption=f"✅ Документ обработан!\n\n"
+                               f"📊 Обработано фрагментов: {len(self.user_sessions[chat_id]['fragments'])}",
+                        filename=f"paraphrased_{Path(result_file_path).name}"
+                    )
+                
+                await self.cleanup_session(chat_id)
+            else:
+                await update.message.reply_text(
+                    "❌ Ошибка при обработке документа. Пожалуйста, попробуйте снова."
+                )
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Error handling source DOCX: {e}", exc_info=True)
+            await self.system_logger.log_error(chat_id, "source_docx_processing", str(e))
+            await update.message.reply_text(
+                "❌ Ошибка при обработке документа. Пожалуйста, попробуйте снова."
+            )
+            return ConversationHandler.END
     
     async def _set_bot_commands(self):
         """Устанавливает команды бота для отображения в меню"""
