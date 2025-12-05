@@ -6,7 +6,7 @@ The only point of entry for the end user
 import os
 import asyncio
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 from telegram import Update, Document, Bot, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
@@ -77,6 +77,9 @@ class TelegramBotInterface:
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /start command"""
+        if not update.message or not update.effective_chat or not update.effective_user:
+            return ConversationHandler.END
+        
         chat_id = update.effective_chat.id
         user_name = update.effective_user.username or "User"
         
@@ -108,6 +111,9 @@ class TelegramBotInterface:
     
     async def continue_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /continue command - continue working with existing document"""
+        if not update.message or not update.effective_chat or not update.effective_user:
+            return ConversationHandler.END
+        
         chat_id = update.effective_chat.id
         user_name = update.effective_user.username or "User"
         
@@ -144,6 +150,9 @@ class TelegramBotInterface:
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle document upload"""
+        if not update.message or not update.effective_chat:
+            return ConversationHandler.END
+        
         chat_id = update.effective_chat.id
         
         if chat_id not in self.user_sessions:
@@ -152,16 +161,28 @@ class TelegramBotInterface:
             )
             return ConversationHandler.END
         
+        if not update.message.document:
+            await update.message.reply_text(
+                "❌ No document found in message"
+            )
+            return ConversationHandler.END
+        
         document: Document = update.message.document
         
         # Validate file format
-        if not document.file_name.endswith('.docx'):
+        if not document.file_name or not document.file_name.endswith('.docx'):
             await update.message.reply_text(
                 "❌ Error: Please upload a .docx file only."
             )
             return WAITING_FOR_FILE
         
         # Check file size
+        if document.file_size is None:
+            await update.message.reply_text(
+                "❌ Error: Could not determine file size."
+            )
+            return WAITING_FOR_FILE
+        
         file_size_mb = document.file_size / (1024 * 1024)
         if file_size_mb > settings.max_file_size_mb:
             await update.message.reply_text(
@@ -217,6 +238,9 @@ class TelegramBotInterface:
     
     async def handle_fragment(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle single fragment input"""
+        if not update.message or not update.effective_chat:
+            return ConversationHandler.END
+        
         chat_id = update.effective_chat.id
         
         if chat_id not in self.user_sessions:
@@ -224,6 +248,12 @@ class TelegramBotInterface:
                 "❌ Сессия истекла. Пожалуйста, начните заново с /start"
             )
             return ConversationHandler.END
+        
+        if not update.message.text:
+            await update.message.reply_text(
+                "❌ Error: No text found in message."
+            )
+            return WAITING_FOR_FRAGMENT
         
         text = update.message.text.strip()
         
@@ -320,12 +350,16 @@ class TelegramBotInterface:
     
     async def handle_more_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle user's choice to add more fragments or process"""
+        if not update.effective_chat:
+            return ConversationHandler.END
+        
         chat_id = update.effective_chat.id
         
         if chat_id not in self.user_sessions:
-            await update.message.reply_text(
-                "❌ Сессия истекла. Пожалуйста, начните заново с /start"
-            )
+            if update.message:
+                await update.message.reply_text(
+                    "❌ Сессия истекла. Пожалуйста, начните заново с /start"
+                )
             return ConversationHandler.END
         
         # Handle both callback queries (buttons) and text messages
@@ -341,22 +375,29 @@ class TelegramBotInterface:
             message = query.message
         else:
             # Handle text response
+            if not update.message or not update.message.text:
+                return ASKING_MORE
+            
             text = update.message.text.strip().lower()
             if text in ['да', 'yes', 'y', 'д', '+', '1']:
                 choice = "more_yes"
             elif text in ['нет', 'no', 'n', 'н', '-', '0']:
                 choice = "more_no"
             else:
-                await update.message.reply_text(
-                    "❓ Пожалуйста, ответьте «да» или «нет».\n"
-                    "Или используйте кнопки ниже.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("✅ Да", callback_data="more_yes"),
-                        InlineKeyboardButton("❌ Нет", callback_data="more_no")
-                    ]])
-                )
+                if update.message:
+                    await update.message.reply_text(
+                        "❓ Пожалуйста, ответьте «да» или «нет».\n"
+                        "Или используйте кнопки ниже.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("✅ Да", callback_data="more_yes"),
+                            InlineKeyboardButton("❌ Нет", callback_data="more_no")
+                        ]])
+                    )
                 return ASKING_MORE
             message = update.message
+        
+        if not message:
+            return ConversationHandler.END
         
         if choice == "more_yes":
             # User wants to add more fragments
@@ -441,9 +482,10 @@ class TelegramBotInterface:
         try:
             fragments = session.get("fragments", [])
             if not fragments:
-                await message.reply_text(
-                    "❌ Не найдено фрагментов для обработки."
-                )
+                if message:
+                    await message.reply_text(
+                        "❌ Не найдено фрагментов для обработки."
+                    )
                 return
             
             # Create task in task manager (without fragments - they are added iteratively)
@@ -461,7 +503,8 @@ class TelegramBotInterface:
                 logger.info(f"Added {len(fragments)} fragments to task {task_id}")
             else:
                 logger.error(f"Task {task_id} not found after creation")
-                await message.reply_text("❌ Ошибка: Задача не найдена. Пожалуйста, попробуйте снова.")
+                if message:
+                    await message.reply_text("❌ Ошибка: Задача не найдена. Пожалуйста, попробуйте снова.")
                 return
             
             # Process task (this will orchestrate blocks 3 and 4)
@@ -532,7 +575,8 @@ class TelegramBotInterface:
             
             error_message += f"Детали ошибки: {str(e)[:200]}"
             
-            await message.reply_text(error_message)
+            if message:
+                await message.reply_text(error_message)
             
             # Cleanup session on error
             await self.cleanup_session(chat_id)
@@ -553,6 +597,9 @@ class TelegramBotInterface:
     
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /cancel command"""
+        if not update.message or not update.effective_chat:
+            return ConversationHandler.END
+        
         chat_id = update.effective_chat.id
         
         await self.cleanup_session(chat_id)
@@ -563,11 +610,12 @@ class TelegramBotInterface:
         
         return ConversationHandler.END
     
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """Handle errors"""
         logger.error(f"Update {update} caused error {context.error}")
         
-        if update and update.effective_chat:
+        # Type guard для update
+        if isinstance(update, Update) and update.effective_chat and context.bot:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="❌ An unexpected error occurred. Please try again with /start"
@@ -575,6 +623,9 @@ class TelegramBotInterface:
     
     async def process_report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /process_report command - обработка PDF-отчетов Антиплагиата"""
+        if not update.message:
+            return
+        
         try:
             await update.message.reply_text(
                 "📊 Обработка PDF-отчетов Антиплагиата\n\n"
@@ -585,7 +636,8 @@ class TelegramBotInterface:
                 "• Получить перефразированный документ\n\n"
                 "Пока используйте команду /start для обычной работы с документами."
             )
-            logger.info(f"/process_report command received from {update.effective_user.id}")
+            if update.effective_user:
+                logger.info(f"/process_report command received from {update.effective_user.id}")
         except Exception as e:
             logger.error(f"Error in process_report_command: {e}", exc_info=True)
             try:
@@ -601,7 +653,8 @@ class TelegramBotInterface:
             BotCommand("cancel", "Отменить текущую операцию"),
         ]
         try:
-            await self.application.bot.set_my_commands(commands)
+            if self.application and self.application.bot:
+                await self.application.bot.set_my_commands(commands)
             logger.info("✅ Команды бота установлены: /start, /process_report, /cancel")
         except Exception as e:
             logger.warning(f"⚠️ Не удалось установить команды бота: {e}")
@@ -617,11 +670,12 @@ class TelegramBotInterface:
         logger.info("Starting Telegram bot in polling mode...")
         # run_polling will automatically delete webhook if exists
         # drop_pending_updates=True ensures clean start
-        self.application.post_init = post_init
-        self.application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
+        if self.application:
+            self.application.post_init = post_init
+            self.application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True
+            )
 
 
 def main():

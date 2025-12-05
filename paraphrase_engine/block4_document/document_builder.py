@@ -9,8 +9,10 @@ from typing import List, Tuple, Optional
 from pathlib import Path
 import shutil
 from docx import Document
+from docx.document import Document as DocumentType
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
+from docx.enum.text import WD_UNDERLINE
 
 from ..block5_logging.logger import SystemLogger
 
@@ -119,7 +121,7 @@ class DocumentBuilder:
     
     async def _replace_fragment_in_document(
         self,
-        doc: Document,
+        doc: DocumentType,
         original_text: str,
         replacement_text: str,
         fragment_index: int
@@ -412,8 +414,9 @@ class DocumentBuilder:
                 target_run.bold = source_run.bold
             if source_run.italic is not None:
                 target_run.italic = source_run.italic
-            if source_run.underline is not None:
-                target_run.underline = source_run.underline
+            if source_run.underline is not None and source_run.underline != WD_UNDERLINE.NONE:
+                # underline может быть bool или WD_UNDERLINE enum
+                target_run.underline = source_run.underline  # type: ignore
             if source_run.font.name:
                 target_run.font.name = source_run.font.name
             if source_run.font.size:
