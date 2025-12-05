@@ -68,6 +68,9 @@ class TelegramBotInterface:
             fallbacks=[CommandHandler('cancel', self.cancel_command)],
         )
         
+        # Add command handler for /process_report
+        self.application.add_handler(CommandHandler('process_report', self.process_report_command))
+        
         # Add handlers
         self.application.add_handler(conv_handler)
         self.application.add_error_handler(self.error_handler)
@@ -569,6 +572,26 @@ class TelegramBotInterface:
                 chat_id=update.effective_chat.id,
                 text="❌ An unexpected error occurred. Please try again with /start"
             )
+    
+    async def process_report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /process_report command - обработка PDF-отчетов Антиплагиата"""
+        try:
+            await update.message.reply_text(
+                "📊 Обработка PDF-отчетов Антиплагиата\n\n"
+                "⚠️ Эта функция находится в разработке.\n\n"
+                "В ближайшее время вы сможете:\n"
+                "• Загрузить PDF-отчет Антиплагиата\n"
+                "• Автоматически извлечь выделенные фрагменты\n"
+                "• Получить перефразированный документ\n\n"
+                "Пока используйте команду /start для обычной работы с документами."
+            )
+            logger.info(f"/process_report command received from {update.effective_user.id}")
+        except Exception as e:
+            logger.error(f"Error in process_report_command: {e}", exc_info=True)
+            try:
+                await update.message.reply_text("❌ Произошла ошибка при обработке команды.")
+            except:
+                pass
     
     async def _set_bot_commands(self):
         """Устанавливает команды бота для отображения в меню"""
