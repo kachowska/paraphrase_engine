@@ -254,8 +254,12 @@ class GoogleGeminiProvider(AIProvider):
         **kwargs
     ) -> str:
         """Generate text using Google Gemini"""
-        # Increase max_tokens if it's too low (Gemini can handle more)
-        effective_max_tokens = max(max_tokens, 4000) if max_tokens < 4000 else max_tokens
+        # Increase max_tokens for Gemini - it can handle up to 8192 output tokens
+        # For long input texts, we need more output tokens
+        # Calculate based on input length: roughly 2x input length + base
+        input_length = len(prompt)
+        calculated_max = max(input_length * 2, 8000)  # At least 8000 tokens for long texts
+        effective_max_tokens = max(max_tokens, calculated_max, 8000)
         
         try:
             # Gemini uses a different parameter structure
