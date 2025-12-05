@@ -672,10 +672,13 @@ class TelegramBotInterface:
         # drop_pending_updates=True ensures clean start
         if self.application:
             self.application.post_init = post_init
-        self.application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
+            self.application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True
+            )
+        else:
+            logger.error("Application is None, cannot start bot")
+            raise RuntimeError("Application is not initialized")
 
 
 def main():
