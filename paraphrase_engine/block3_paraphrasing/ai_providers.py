@@ -102,7 +102,7 @@ class OpenAIProvider(AIProvider):
 class AnthropicProvider(AIProvider):
     """Anthropic Claude provider"""
     
-    def __init__(self, api_key: str, model: str = None):
+    def __init__(self, api_key: str, model: Optional[str] = None):
         # Use Claude Sonnet 4.5 as default (cost-effective)
         # Correct model ID as of November 2025: claude-sonnet-4-5-20250929
         if model is None:
@@ -172,8 +172,9 @@ class AnthropicProvider(AIProvider):
                 # Extract text from response
                 if response.content and len(response.content) > 0:
                     content_item = response.content[0]
-                    if hasattr(content_item, 'text') and content_item.text:
-                        result = str(content_item.text).strip()
+                    # Check if content_item has text attribute (for TextBlock type)
+                    if hasattr(content_item, 'text') and getattr(content_item, 'text', None):
+                        result = str(getattr(content_item, 'text')).strip()
                         if model_name != self.model:
                             logger.info(f"Successfully used fallback model: {model_name}")
                         return result
@@ -205,7 +206,7 @@ class AnthropicProvider(AIProvider):
 class GoogleGeminiProvider(AIProvider):
     """Google Gemini provider"""
     
-    def __init__(self, api_key: str, model: str = None):
+    def __init__(self, api_key: str, model: Optional[str] = None):
         # Default to Gemini 2.5 Pro
         if model is None:
             model = "gemini-2.5-pro"
@@ -216,7 +217,7 @@ class GoogleGeminiProvider(AIProvider):
         if not genai:
             raise ImportError("Google GenerativeAI package not installed")
         
-        genai.configure(api_key=self.api_key)
+        genai.configure(api_key=self.api_key)  # type: ignore[attr-defined]
         
         # List of models to try in order of preference
         models_to_try = [
@@ -234,7 +235,7 @@ class GoogleGeminiProvider(AIProvider):
         last_error = None
         for model_name in models_to_try:
             try:
-                self.client = genai.GenerativeModel(model_name)
+                self.client = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
                 self.model = model_name
                 logger.info(f"Successfully initialized Gemini with model: {model_name}")
                 return
@@ -266,7 +267,7 @@ class GoogleGeminiProvider(AIProvider):
         
         try:
             # Gemini uses a different parameter structure
-            generation_config = genai.GenerationConfig(
+            generation_config = genai.GenerationConfig(  # type: ignore[attr-defined]
                 temperature=temperature,
                 max_output_tokens=effective_max_tokens,
             )
