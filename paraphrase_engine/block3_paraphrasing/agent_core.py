@@ -92,24 +92,9 @@ Provide ONLY the refined version, without any explanations.
 """
     
     def _initialize_providers(self):
-        """Initialize available AI providers based on configuration"""
+        """Initialize available AI providers based on configuration - using only Gemini"""
         
-        if settings.openai_api_key:
-            try:
-                provider = OpenAIProvider(api_key=settings.openai_api_key)
-                self.providers.append(provider)
-                logger.info("Initialized OpenAI provider")
-            except Exception as e:
-                logger.warning(f"Failed to initialize OpenAI provider: {e}")
-        
-        if settings.anthropic_api_key:
-            try:
-                provider = AnthropicProvider(api_key=settings.anthropic_api_key)
-                self.providers.append(provider)
-                logger.info("Initialized Anthropic provider")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Anthropic provider: {e}")
-        
+        # Используем только Google Gemini для избежания проблем с кодировкой
         if settings.google_api_key:
             try:
                 provider = GoogleGeminiProvider(api_key=settings.google_api_key)
@@ -117,6 +102,24 @@ Provide ONLY the refined version, without any explanations.
                 logger.info("Initialized Google Gemini provider")
             except Exception as e:
                 logger.warning(f"Failed to initialize Google Gemini provider: {e}")
+        
+        # OpenAI отключен из-за проблем с кодировкой Unicode
+        # if settings.openai_api_key:
+        #     try:
+        #         provider = OpenAIProvider(api_key=settings.openai_api_key)
+        #         self.providers.append(provider)
+        #         logger.info("Initialized OpenAI provider")
+        #     except Exception as e:
+        #         logger.warning(f"Failed to initialize OpenAI provider: {e}")
+        
+        # Anthropic оставлен как резервный вариант
+        if settings.anthropic_api_key:
+            try:
+                provider = AnthropicProvider(api_key=settings.anthropic_api_key)
+                self.providers.append(provider)
+                logger.info("Initialized Anthropic provider")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Anthropic provider: {e}")
         
         if not self.providers:
             raise ValueError("No AI providers available. Please configure at least one API key.")
