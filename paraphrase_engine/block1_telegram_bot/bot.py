@@ -7,7 +7,7 @@ import os
 import asyncio
 from pathlib import Path
 from typing import Dict, List
-from telegram import Update, Document, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, Document, Bot, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -570,13 +570,31 @@ class TelegramBotInterface:
                 text="❌ An unexpected error occurred. Please try again with /start"
             )
     
+    async def _set_bot_commands(self):
+        """Устанавливает команды бота для отображения в меню"""
+        commands = [
+            BotCommand("start", "Начать работу с ботом"),
+            BotCommand("process_report", "Обработать PDF-отчет Антиплагиата"),
+            BotCommand("cancel", "Отменить текущую операцию"),
+        ]
+        try:
+            await self.application.bot.set_my_commands(commands)
+            logger.info("✅ Команды бота установлены: /start, /process_report, /cancel")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось установить команды бота: {e}")
+    
     def run(self):
         """Run the bot in polling mode"""
         # Handlers are already set up in __init__
+        # Set bot commands using post_init callback
+        async def post_init(app: Application) -> None:
+            await self._set_bot_commands()
+        
         # Run bot
         logger.info("Starting Telegram bot in polling mode...")
         # run_polling will automatically delete webhook if exists
         # drop_pending_updates=True ensures clean start
+        self.application.post_init = post_init
         self.application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
