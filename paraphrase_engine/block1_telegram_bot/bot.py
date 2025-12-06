@@ -640,15 +640,16 @@ class TelegramBotInterface:
                     task = await self.task_manager._load_task_from_disk(task_id)
                 
                 processed_count = 0
-                if task and task.paraphrased_fragments:
-                    processed_count = sum(1 for f in task.paraphrased_fragments if f and f.strip() and f != task.fragments[task.paraphrased_fragments.index(f) if f in task.paraphrased_fragments else 0])
-                
-                # Count actually processed (not just original text)
-                if task and task.paraphrased_fragments:
-                    processed_count = len([f for i, f in enumerate(task.paraphrased_fragments) 
-                                          if f and f.strip() and (i >= len(task.fragments) or f != task.fragments[i])])
-                
                 total_count = len(fragments) if fragments else (len(task.fragments) if task else 0)
+                
+                # Count actually processed fragments (where paraphrased != original)
+                if task and task.paraphrased_fragments and task.fragments:
+                    for i, paraphrased in enumerate(task.paraphrased_fragments):
+                        if i < len(task.fragments):
+                            original = task.fragments[i]
+                            # Count as processed if paraphrased exists, is not empty, and differs from original
+                            if paraphrased and paraphrased.strip() and paraphrased.strip() != original.strip():
+                                processed_count += 1
                 
                 if processed_count > 0:
                     error_message = (
