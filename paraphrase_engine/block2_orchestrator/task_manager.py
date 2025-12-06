@@ -241,11 +241,11 @@ class TaskManager:
                     total_fragments=total_fragments
                 )
                 
-                # Send progress update every 10 fragments or at milestones (25%, 50%, 75%)
+                # Send progress update every 5 fragments or at milestones (25%, 50%, 75%, 100%)
                 progress_percent = int((processed_count / total_fragments) * 100)
-                milestones = [25, 50, 75]
+                milestones = [25, 50, 75, 100]
                 should_update = (
-                    processed_count % 10 == 0 or  # Every 10 fragments
+                    processed_count % 5 == 0 or  # Every 5 fragments (more frequent updates)
                     (progress_percent in milestones and progress_percent != last_progress_update) or  # At milestones
                     processed_count == total_fragments  # Final update
                 )
