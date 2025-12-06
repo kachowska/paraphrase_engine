@@ -525,36 +525,51 @@ class TelegramBotInterface:
             # Create progress callback for sending updates to user
             progress_messages = []  # Store sent messages to edit them
             
+            # Get bot instance for sending messages
+            bot_instance = context.bot if context and context.bot else None
+            if not bot_instance:
+                logger.error(f"Bot instance not available for chat {chat_id}")
+            
             async def progress_callback(text: str):
                 """Send or update progress message"""
+                if not bot_instance:
+                    logger.warning(f"Cannot send progress update: bot instance not available")
+                    return
+                    
                 try:
-                    logger.info(f"Sending progress update to chat {chat_id}: {text[:50]}...")
+                    logger.info(f"📊 Sending progress update to chat {chat_id}: {text[:80]}...")
                     if progress_messages:
                         # Edit last message
                         try:
                             await progress_messages[-1].edit_text(text, parse_mode='Markdown')
-                            logger.debug(f"Updated progress message for chat {chat_id}")
+                            logger.debug(f"✅ Updated progress message for chat {chat_id}")
                         except Exception as edit_error:
                             # If edit fails (e.g., message too old), send new message
-                            logger.warning(f"Failed to edit message, sending new: {edit_error}")
-                            msg = await context.bot.send_message(
+                            logger.warning(f"⚠️ Failed to edit message, sending new: {edit_error}")
+                            try:
+                                msg = await bot_instance.send_message(
+                                    chat_id=chat_id,
+                                    text=text,
+                                    parse_mode='Markdown'
+                                )
+                                progress_messages.append(msg)
+                                logger.info(f"✅ Sent new progress message to chat {chat_id}")
+                            except Exception as send_error:
+                                logger.error(f"❌ Failed to send new progress message: {send_error}")
+                    else:
+                        # Send first message
+                        try:
+                            msg = await bot_instance.send_message(
                                 chat_id=chat_id,
                                 text=text,
                                 parse_mode='Markdown'
                             )
                             progress_messages.append(msg)
-                            logger.info(f"Sent new progress message to chat {chat_id}")
-                    else:
-                        # Send first message
-                        msg = await context.bot.send_message(
-                            chat_id=chat_id,
-                            text=text,
-                            parse_mode='Markdown'
-                        )
-                        progress_messages.append(msg)
-                        logger.info(f"Sent initial progress message to chat {chat_id}")
+                            logger.info(f"✅ Sent initial progress message to chat {chat_id}")
+                        except Exception as send_error:
+                            logger.error(f"❌ Failed to send initial progress message: {send_error}")
                 except Exception as e:
-                    logger.error(f"Failed to send progress update to chat {chat_id}: {e}", exc_info=True)
+                    logger.error(f"❌ Failed to send progress update to chat {chat_id}: {e}", exc_info=True)
             
             # Process task (this will orchestrate blocks 3 and 4)
             result_file_path = await self.task_manager.process_task(task_id, progress_callback=progress_callback)
