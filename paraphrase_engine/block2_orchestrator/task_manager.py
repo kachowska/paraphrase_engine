@@ -265,6 +265,17 @@ class TaskManager:
                         logger.error(f"Error sending progress update: {e}", exc_info=True)
                 
             except Exception as e:
+                error_str = str(e)
+                # Check if it's a quota error
+                from ..block3_paraphrasing.ai_providers import QuotaExceededError
+                
+                if isinstance(e, QuotaExceededError) or "quota" in error_str.lower() or "429" in error_str:
+                    logger.error(f"Quota exceeded for fragment {fragment_number}: {e}")
+                    # Store the original fragment if quota is exceeded
+                    paraphrased_fragments[index] = fragment
+                    # This will be handled at the task level
+                    raise QuotaExceededError(str(e)) from e
+                
                 logger.error(f"Error processing fragment {fragment_number} for task {task.task_id}: {e}")
                 
                 paraphrased_fragments[index] = fragment

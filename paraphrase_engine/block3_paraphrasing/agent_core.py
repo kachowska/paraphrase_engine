@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 import json
 
 from ..config import settings
@@ -15,7 +15,8 @@ from .ai_providers import (
     OpenAIProvider,
     AnthropicProvider,
     GoogleGeminiProvider,
-    AIProvider
+    AIProvider,
+    QuotaExceededError
 )
 from ..block5_logging.logger import SystemLogger
 
@@ -217,7 +218,8 @@ Provide ONLY the refined version, without any explanations.
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_not_exception_type(QuotaExceededError)  # Don't retry on quota errors
     )
     async def _generate_with_provider(
         self,
@@ -241,6 +243,9 @@ Provide ONLY the refined version, without any explanations.
                     metadata={"model": provider.model}
                 )
             
+        except QuotaExceededError:
+            # Re-raise quota errors without retrying
+            raise
         except Exception as e:
             logger.error(f"Error with provider {provider.name}: {e}")
             raise

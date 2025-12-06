@@ -626,10 +626,25 @@ class TelegramBotInterface:
             await self.cleanup_session(chat_id)
                 
         except Exception as e:
+            error_str = str(e)
             logger.error(f"Error processing task for chat {chat_id}: {e}", exc_info=True)
             await self.system_logger.log_error(chat_id, "task_processing", str(e))
             
-            error_message = "❌ Произошла ошибка при обработке задачи.\n\n"
+            # Check if it's a quota error
+            from ..block3_paraphrasing.ai_providers import QuotaExceededError
+            
+            if isinstance(e, QuotaExceededError) or "quota" in error_str.lower() or "429" in error_str or "превышен лимит" in error_str.lower():
+                error_message = (
+                    "⚠️ *Превышен лимит запросов к Gemini API*\n\n"
+                    "К сожалению, достигнут дневной лимит запросов к Google Gemini API.\n\n"
+                    "📊 *Что делать:*\n"
+                    "1. Проверьте вашу квоту: https://ai.dev/usage?tab=rate-limit\n"
+                    "2. Подождите до следующего дня (лимит обновляется ежедневно)\n"
+                    "3. Или увеличьте лимит в настройках Google Cloud Console\n\n"
+                    "💡 *Совет:* Попробуйте обработать документ позже или разбейте его на меньшие части."
+                )
+            else:
+                error_message = "❌ Произошла ошибка при обработке задачи.\n\n"
             
             # Provide more specific error messages
             error_str = str(e).lower()

@@ -351,6 +351,15 @@ class GoogleGeminiProvider(AIProvider):
             # Re-raise ValueError as-is (these are our custom errors)
             raise
         except Exception as e:
+            error_str = str(e)
+            # Check for quota/rate limit errors (429)
+            if "429" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower():
+                logger.error(f"Gemini API quota exceeded: {e}")
+                raise QuotaExceededError(
+                    "Превышен лимит запросов к Gemini API. "
+                    "Пожалуйста, проверьте вашу квоту на https://ai.dev/usage?tab=rate-limit. "
+                    "Попробуйте позже или увеличьте лимит в настройках Google Cloud."
+                ) from e
             logger.error(f"Gemini generation error: {e}")
             raise
 
