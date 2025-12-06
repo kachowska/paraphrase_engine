@@ -584,36 +584,59 @@ class TelegramBotInterface:
                 # Try to load from disk
                 task = await self.task_manager._load_task_from_disk(task_id)
             
-            # Prepare result message
-            result_message = "✅ Документ обработан успешно!\n\n"
+            # Prepare short caption for document (Telegram limit: 1024 characters)
+            caption = "✅ Документ обработан успешно!\n\n"
             
             # Check if all fragments were processed
             if task and len(task.paraphrased_fragments) < len(fragments):
                 missing_count = len(fragments) - len(task.paraphrased_fragments)
-                result_message += f"⚠️ Внимание: {missing_count} фрагмент(ов) не было найдено в документе.\n\n"
+                caption += f"⚠️ Внимание: {missing_count} фрагмент(ов) не было найдено в документе.\n\n"
             
-            result_message += f"📊 Обработано фрагментов: {len(task.paraphrased_fragments) if task else len(fragments)}/{len(fragments)}\n\n"
-            result_message += "📄 Перефразированные фрагменты:\n\n"
+            caption += f"📊 Обработано фрагментов: {len(task.paraphrased_fragments) if task else len(fragments)}/{len(fragments)}"
             
-            # Add paraphrased fragments to message
+            # Truncate caption to 1024 characters (Telegram limit)
+            if len(caption) > 1024:
+                caption = caption[:1021] + "..."
+            
+            # Prepare detailed message with all fragments (sent separately)
+            detailed_message = "📄 *Детали перефразирования:*\n\n"
+            
             if task and task.paraphrased_fragments:
                 for i, (original, paraphrased) in enumerate(zip(
                     task.fragments,
                     task.paraphrased_fragments
                 ), 1):
-                    result_message += f"*Фрагмент {i}:*\n"
-                    result_message += f"📝 Оригинал: {original[:100]}{'...' if len(original) > 100 else ''}\n"
-                    result_message += f"✨ Перефразировано: {paraphrased[:100]}{'...' if len(paraphrased) > 100 else ''}\n\n"
+                    fragment_text = f"*Фрагмент {i}:*\n"
+                    fragment_text += f"📝 Оригинал: {original[:100]}{'...' if len(original) > 100 else ''}\n"
+                    fragment_text += f"✨ Перефразировано: {paraphrased[:100]}{'...' if len(paraphrased) > 100 else ''}\n\n"
+                    
+                    # Check if adding this fragment would exceed Telegram message limit (4096 chars)
+                    if len(detailed_message) + len(fragment_text) > 4000:
+                        detailed_message += "\n... (остальные фрагменты в документе)"
+                        break
+                    detailed_message += fragment_text
             
-            # Send result document
+            # Send result document with short caption
             with open(result_file_path, 'rb') as f:
                 await context.bot.send_document(
                     chat_id=chat_id,
                     document=f,
-                    caption=result_message,
+                    caption=caption,
                     filename=f"processed_{session.get('file_name', 'document.docx')}",
                     parse_mode='Markdown'
                 )
+            
+            # Send detailed message separately if there are fragments
+            if task and task.paraphrased_fragments and len(detailed_message) > 50:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=detailed_message,
+                        parse_mode='Markdown'
+                    )
+                except Exception as detail_error:
+                    # If detailed message fails, log but don't fail the whole operation
+                    logger.warning(f"Failed to send detailed message: {detail_error}")
             
             # Log success
             await self.system_logger.log_task_completed(
