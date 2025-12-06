@@ -634,15 +634,45 @@ class TelegramBotInterface:
             from ..block3_paraphrasing.ai_providers import QuotaExceededError
             
             if isinstance(e, QuotaExceededError) or "quota" in error_str.lower() or "429" in error_str or "превышен лимит" in error_str.lower():
-                error_message = (
-                    "⚠️ *Превышен лимит запросов к Gemini API*\n\n"
-                    "К сожалению, достигнут дневной лимит запросов к Google Gemini API.\n\n"
-                    "📊 *Что делать:*\n"
-                    "1. Проверьте вашу квоту: https://ai.dev/usage?tab=rate-limit\n"
-                    "2. Подождите до следующего дня (лимит обновляется ежедневно)\n"
-                    "3. Или увеличьте лимит в настройках Google Cloud Console\n\n"
-                    "💡 *Совет:* Попробуйте обработать документ позже или разбейте его на меньшие части."
-                )
+                # Check if we have partial progress
+                task = self.task_manager.tasks.get(task_id)
+                if not task:
+                    task = await self.task_manager._load_task_from_disk(task_id)
+                
+                processed_count = 0
+                if task and task.paraphrased_fragments:
+                    processed_count = sum(1 for f in task.paraphrased_fragments if f and f.strip() and f != task.fragments[task.paraphrased_fragments.index(f) if f in task.paraphrased_fragments else 0])
+                
+                # Count actually processed (not just original text)
+                if task and task.paraphrased_fragments:
+                    processed_count = len([f for i, f in enumerate(task.paraphrased_fragments) 
+                                          if f and f.strip() and (i >= len(task.fragments) or f != task.fragments[i])])
+                
+                total_count = len(fragments) if fragments else (len(task.fragments) if task else 0)
+                
+                if processed_count > 0:
+                    error_message = (
+                        f"⚠️ *Превышен лимит запросов к Gemini API*\n\n"
+                        f"Обработка остановлена из-за превышения дневной квоты.\n\n"
+                        f"📊 *Прогресс:* {processed_count}/{total_count} фрагментов обработано\n"
+                        f"💾 Прогресс сохранен. Вы можете продолжить обработку позже.\n\n"
+                        f"📋 *Что делать:*\n"
+                        f"1. Проверьте квоту: https://ai.dev/usage?tab=rate-limit\n"
+                        f"2. Подождите до следующего дня (лимит обновляется ежедневно)\n"
+                        f"3. Или увеличьте лимит в Google Cloud Console\n\n"
+                        f"💡 *Совет:* Попробуйте обработать документ завтра или разбейте его на меньшие части.\n\n"
+                        f"🔄 Чтобы продолжить обработку, просто загрузите документ снова после восстановления квоты."
+                    )
+                else:
+                    error_message = (
+                        "⚠️ *Превышен лимит запросов к Gemini API*\n\n"
+                        "К сожалению, достигнут дневной лимит запросов к Google Gemini API.\n\n"
+                        "📊 *Что делать:*\n"
+                        "1. Проверьте вашу квоту: https://ai.dev/usage?tab=rate-limit\n"
+                        "2. Подождите до следующего дня (лимит обновляется ежедневно)\n"
+                        "3. Или увеличьте лимит в настройках Google Cloud Console\n\n"
+                        "💡 *Совет:* Попробуйте обработать документ позже или разбейте его на меньшие части."
+                    )
             else:
                 error_message = "❌ Произошла ошибка при обработке задачи.\n\n"
             

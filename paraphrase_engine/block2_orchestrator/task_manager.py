@@ -185,14 +185,44 @@ class TaskManager:
                 return result_file_path
                 
             except Exception as e:
+                error_str = str(e)
+                from ..block3_paraphrasing.ai_providers import QuotaExceededError
+                
+                # Check if it's a quota error
+                is_quota_error = (
+                    isinstance(e, QuotaExceededError) or 
+                    "quota" in error_str.lower() or 
+                    "429" in error_str or 
+                    "превышен лимит" in error_str.lower()
+                )
+                
+                if is_quota_error:
+                    # Save progress for quota errors - user can continue later
+                    logger.warning(f"Quota exceeded for task {task_id}, saving progress...")
+                    
+                    # Count how many fragments were successfully processed
+                    processed_count = sum(1 for f in task.paraphrased_fragments if f and f.strip())
+                    
+                    # Update task status to QUOTA_EXCEEDED (or keep as IN_PROGRESS)
+                    task.status = TaskStatus.IN_PROGRESS  # Keep as in progress so it can be resumed
+                    task.error_message = f"Quota exceeded. Processed {processed_count}/{len(task.fragments)} fragments."
+                    task.metadata = task.metadata or {}
+                    task.metadata["quota_exceeded"] = True
+                    task.metadata["processed_count"] = processed_count
+                    task.metadata["quota_error_time"] = datetime.now().isoformat()
+                    
+                    await self._save_task_to_disk(task)
+                    
+                    logger.info(f"Task {task_id} progress saved: {processed_count}/{len(task.fragments)} fragments processed")
+                
                 logger.error(f"Error processing task {task_id}: {e}")
                 
-                # Update task with error
-                task.status = TaskStatus.FAILED
-                task.error_message = str(e)
-                task.completed_at = datetime.now()
-                
-                await self._save_task_to_disk(task)
+                # Update task with error (if not quota error)
+                if not is_quota_error:
+                    task.status = TaskStatus.FAILED
+                    task.error_message = str(e)
+                    task.completed_at = datetime.now()
+                    await self._save_task_to_disk(task)
                 
                 # Log error
                 await self.system_logger.log_error(
