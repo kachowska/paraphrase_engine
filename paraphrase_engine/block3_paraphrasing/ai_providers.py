@@ -29,6 +29,12 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+# Custom exception for quota/rate limit errors
+class QuotaExceededError(Exception):
+    """Raised when API quota is exceeded"""
+    pass
+
+
 class AIProvider(ABC):
     """Abstract base class for AI providers"""
     

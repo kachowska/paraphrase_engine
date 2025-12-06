@@ -34,7 +34,7 @@ class TaskStatus(Enum):
 class Task:
     """Represents a paraphrasing task"""
     
-    def __init__(self, task_id: str, chat_id: int, file_path: str, fragments: List[str] = None):
+    def __init__(self, task_id: str, chat_id: int, file_path: str, fragments: Optional[List[str]] = None):
         self.task_id = task_id
         self.chat_id = chat_id
         self.file_path = file_path
@@ -203,8 +203,8 @@ class TaskManager:
                     # Count how many fragments were successfully processed
                     processed_count = sum(1 for f in task.paraphrased_fragments if f and f.strip())
                     
-                    # Update task status to QUOTA_EXCEEDED (or keep as IN_PROGRESS)
-                    task.status = TaskStatus.IN_PROGRESS  # Keep as in progress so it can be resumed
+                    # Update task status to PROCESSING (keep as processing so it can be resumed)
+                    task.status = TaskStatus.PROCESSING  # Keep as processing so it can be resumed
                     task.error_message = f"Quota exceeded. Processed {processed_count}/{len(task.fragments)} fragments."
                     task.metadata = task.metadata or {}
                     task.metadata["quota_exceeded"] = True
