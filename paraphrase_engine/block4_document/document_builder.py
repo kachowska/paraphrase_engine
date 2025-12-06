@@ -195,21 +195,25 @@ class DocumentBuilder:
             
             # If still not found, try searching across multiple paragraphs (for fragments split across lines)
             if not replacement_made and i < len(paragraphs_list) - 1:
-                # Combine current paragraph with next 2 paragraphs
+                # Combine current paragraph with next paragraphs (up to 5 paragraphs for long fragments)
+                max_combine = min(5, len(paragraphs_list) - i)
                 combined_text = paragraph_text
                 combined_normalized = paragraph_normalized
+                combined_paragraphs = [paragraph]
                 
-                for j in range(1, min(3, len(paragraphs_list) - i)):
+                for j in range(1, max_combine):
                     next_para = paragraphs_list[i + j]
                     combined_text += " " + next_para.text
                     combined_normalized += " " + self._normalize_text(next_para.text)
+                    combined_paragraphs.append(next_para)
                 
                 # Check normalized match in combined text
                 if original_normalized in combined_normalized:
-                    # Try to find in the first paragraph that contains part of the fragment
-                    actual_text = self._find_actual_text_in_paragraph(paragraph, original_normalized)
+                    # Try to find the actual text across multiple paragraphs
+                    actual_text = self._find_actual_text_across_paragraphs(combined_paragraphs, original_normalized)
                     
                     if actual_text:
+                        # Replace in the first paragraph that contains the start of the fragment
                         success = self._replace_in_paragraph_with_formatting(
                             paragraph,
                             actual_text,
@@ -218,8 +222,8 @@ class DocumentBuilder:
                         
                         if success:
                             replacement_made = True
-                            logger.info(f"Replaced fragment {fragment_index} in paragraph (multi-paragraph normalized match)")
-                        break
+                            logger.info(f"Replaced fragment {fragment_index} in paragraph (multi-paragraph normalized match, {len(combined_paragraphs)} paragraphs)")
+                            break
         
         # Also check in tables
         if not replacement_made:
@@ -294,15 +298,146 @@ class DocumentBuilder:
                             if success:
                                 replacement_made = True
                                 logger.info(f"Replaced fragment {fragment_index} in paragraph (keyword-based match, {matching_words}/{len(words)} words)")
-                    break
+                                break
+                
+                # If still not found, try searching across multiple paragraphs with keywords
+                if not replacement_made and len(words) >= 5:
+                    for i in range(len(paragraphs_list) - 1):
+                        # Combine up to 3 paragraphs
+                        combined_para_text = paragraphs_list[i].text
+                        combined_para_normalized = self._normalize_text(combined_para_text)
+                        combined_paras = [paragraphs_list[i]]
+                        
+                        for j in range(1, min(3, len(paragraphs_list) - i)):
+                            next_para = paragraphs_list[i + j]
+                            combined_para_text += " " + next_para.text
+                            combined_para_normalized += " " + self._normalize_text(next_para.text)
+                            combined_paras.append(next_para)
+                        
+                        matching_words = sum(1 for word in words if word.lower() in combined_para_normalized.lower())
+                        if matching_words >= 3:  # At least 3 words match in combined text
+                            # Try to find text across paragraphs
+                            best_match = self._find_actual_text_across_paragraphs(combined_paras, original_normalized)
+                            
+                            if best_match:
+                                success = self._replace_in_paragraph_with_formatting(
+                                    paragraphs_list[i],
+                                    best_match,
+                                    replacement_text
+                                )
+                                
+                                if success:
+                                    replacement_made = True
+                                    logger.info(f"Replaced fragment {fragment_index} across {len(combined_paras)} paragraphs (multi-paragraph keyword match, {matching_words}/{len(words)} words)")
+                                    break
+                        
+                        if replacement_made:
+                            break
         
         if not replacement_made:
+            # Enhanced logging to help debug why fragment wasn't found
             logger.warning(
                 f"Fragment {fragment_index} not found in document. "
                 f"Original: {original_text[:100]}..."
             )
+            logger.debug(
+                f"Fragment {fragment_index} normalized: {original_normalized[:150]}..."
+            )
+            # Log first few paragraphs for debugging
+            if len(doc.paragraphs) > 0:
+                for para_idx, para in enumerate(doc.paragraphs[:3]):
+                    para_text = para.text[:200]
+                    para_normalized = self._normalize_text(para.text)[:200]
+                    logger.debug(
+                        f"Paragraph {para_idx} sample: {para_text}... "
+                        f"(normalized: {para_normalized}...)"
+                    )
+                    # Check if any words from fragment are in this paragraph
+                    fragment_words = set(original_normalized.lower().split()[:5])  # First 5 words
+                    para_words = set(para_normalized.lower().split())
+                    common_words = fragment_words.intersection(para_words)
+                    if common_words:
+                        logger.debug(
+                            f"Paragraph {para_idx} shares {len(common_words)} words with fragment: {list(common_words)[:3]}"
+                        )
         
         return replacement_made
+    
+    def _find_actual_text_across_paragraphs(
+        self,
+        paragraphs: List[Paragraph],
+        normalized_search: str
+    ) -> Optional[str]:
+        """
+        Find actual text across multiple paragraphs that matches normalized search string
+        """
+        # Combine all paragraph texts
+        combined_text = " ".join(para.text for para in paragraphs)
+        combined_normalized = self._normalize_text(combined_text)
+        
+        # Check if normalized search is in combined text
+        if normalized_search not in combined_normalized:
+            return None
+        
+        # Find position in normalized text
+        start_pos = combined_normalized.find(normalized_search)
+        if start_pos == -1:
+            return None
+        
+        # Map normalized position back to actual text
+        # Count normalized characters to find approximate position
+        norm_count = 0
+        actual_start = 0
+        actual_end = len(combined_text)
+        
+        for i, char in enumerate(combined_text):
+            char_norm = self._normalize_text(char)
+            if char_norm:
+                if norm_count == start_pos:
+                    actual_start = i
+                if norm_count == start_pos + len(normalized_search):
+                    actual_end = i
+                    break
+                norm_count += 1
+        
+        # Extract candidate text
+        candidate = combined_text[actual_start:actual_end]
+        
+        # Verify it normalizes correctly
+        if self._normalize_text(candidate) == normalized_search:
+            return candidate
+        
+        # If exact match failed, try word-based matching
+        search_words = normalized_search.split()
+        if len(search_words) < 3:
+            return None
+        
+        # Find first 3 words in combined text
+        first_words = " ".join(search_words[:3])
+        if first_words in combined_normalized:
+            first_pos = combined_normalized.find(first_words)
+            # Try to extract text starting from first words
+            norm_count = 0
+            actual_start = 0
+            for i, char in enumerate(combined_text):
+                char_norm = self._normalize_text(char)
+                if char_norm:
+                    if norm_count == first_pos:
+                        actual_start = i
+                        break
+                    norm_count += 1
+            
+            # Extract a reasonable amount of text (at least the search length)
+            min_length = len(normalized_search)
+            actual_end = min(actual_start + min_length * 2, len(combined_text))
+            candidate = combined_text[actual_start:actual_end]
+            
+            # Verify it contains the key words
+            candidate_normalized = self._normalize_text(candidate)
+            if all(word in candidate_normalized for word in search_words[:3]):
+                return candidate
+        
+        return None
     
     def _replace_in_paragraph_with_formatting(
         self,
