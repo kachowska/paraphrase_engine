@@ -5,10 +5,11 @@ The "secret sauce" - generates the best paraphrased text using multiple AI model
 
 import asyncio
 import logging
+import re
+import json
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
-import json
 
 from ..config import settings
 from .ai_providers import (
@@ -47,18 +48,67 @@ class ParaphrasingAgent:
         self._initialize_providers()
         
         # Prompts for different stages
-        self.generation_prompt_template = """
-You are an expert in academic and scientific writing. Your task is to paraphrase the following text while:
-1. Preserving the exact meaning and all key information
-2. Maintaining the academic/scientific style and terminology
-3. Ensuring the new version is significantly different from the original
-4. Keeping the same level of formality and technical precision
+        self.generation_prompt_template = """You are an expert in academic and scientific writing with fluency in Russian. Your task is to paraphrase a given text while preserving its exact meaning and academic quality.
 
-Original text:
-{text}
+Here is the text you need to paraphrase:
 
-Provide ONLY the paraphrased version, without any explanations or metadata.
-"""
+<text>
+
+{{TEXT}}
+
+</text>
+
+Your goal is to create a paraphrased version that meets the following requirements:
+
+1. **Preserve exact meaning**: All key information, data, findings, and arguments must remain identical to the original
+
+2. **Maintain academic/scientific style**: Keep the formal, scholarly tone and use appropriate academic terminology
+
+3. **Ensure significant difference**: The paraphrased version must be substantially different in structure and wording from the original - do not simply replace a few words
+
+4. **Keep technical precision**: All technical terms, scientific concepts, and precise measurements must be accurately conveyed
+
+5. **Preserve the Russian language**: The text is in Russian and must remain in Russian - do not translate it
+
+Before writing your paraphrase, use the scratchpad to:
+
+- Identify the main ideas and key information that must be preserved
+
+- Note important technical terms and concepts
+
+- Plan structural changes (e.g., reordering clauses, changing sentence structure, converting active to passive voice or vice versa)
+
+- Consider alternative ways to express the same ideas using different vocabulary and syntax
+
+<scratchpad>
+
+[Your analysis and planning here]
+
+</scratchpad>
+
+Guidelines for effective paraphrasing:
+
+- Change sentence structure significantly (combine sentences, split them, reorder clauses)
+
+- Use synonyms and alternative expressions where appropriate, but keep technical terms precise
+
+- Vary the grammatical construction (e.g., change noun phrases to verb phrases, use different conjunctions)
+
+- Maintain all numerical data, citations, and specific facts exactly as presented
+
+- Keep the same level of detail and complexity
+
+- Do not add new information or interpretations not present in the original
+
+- Do not omit any important information from the original
+
+Write your paraphrased version inside <paraphrase> tags.
+
+<paraphrase>
+
+[Your paraphrased text here]
+
+</paraphrase>"""
         
         self.evaluation_prompt_template = """
 You are an expert evaluator of paraphrased text. Compare these paraphrased versions and select the BEST one based on:
@@ -93,18 +143,27 @@ Provide ONLY the refined version, without any explanations.
 """
     
     def _initialize_providers(self):
-        """Initialize available AI providers based on configuration - using only Gemini"""
+        """Initialize available AI providers based on configuration - using Claude 4.5 Sonnet"""
         
-        # Используем только Google Gemini
+        # Используем Claude 4.5 Sonnet (Anthropic)
+        if settings.anthropic_api_key:
+            try:
+                provider = AnthropicProvider(api_key=settings.anthropic_api_key)
+                self.providers.append(provider)
+                logger.info("Initialized Anthropic Claude 4.5 Sonnet provider")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Anthropic provider: {e}")
+        else:
+            raise ValueError("Anthropic API key is required. Please configure ANTHROPIC_API_KEY in .env file.")
+        
+        # Google Gemini как резервный вариант
         if settings.google_api_key:
             try:
                 provider = GoogleGeminiProvider(api_key=settings.google_api_key)
                 self.providers.append(provider)
-                logger.info("Initialized Google Gemini provider")
+                logger.info("Initialized Google Gemini provider (fallback)")
             except Exception as e:
                 logger.warning(f"Failed to initialize Google Gemini provider: {e}")
-        else:
-            raise ValueError("Google API key is required. Please configure GOOGLE_API_KEY in .env file.")
         
         # OpenAI отключен из-за проблем с кодировкой Unicode
         # if settings.openai_api_key:
@@ -115,19 +174,10 @@ Provide ONLY the refined version, without any explanations.
         #     except Exception as e:
         #         logger.warning(f"Failed to initialize OpenAI provider: {e}")
         
-        # Anthropic отключен - используем только Gemini
-        # if settings.anthropic_api_key:
-        #     try:
-        #         provider = AnthropicProvider(api_key=settings.anthropic_api_key)
-        #         self.providers.append(provider)
-        #         logger.info("Initialized Anthropic provider")
-        #     except Exception as e:
-        #         logger.warning(f"Failed to initialize Anthropic provider: {e}")
-        
         if not self.providers:
-            raise ValueError("No AI providers available. Please configure GOOGLE_API_KEY in .env file.")
+            raise ValueError("No AI providers available. Please configure ANTHROPIC_API_KEY in .env file.")
         
-        logger.info(f"Initialized {len(self.providers)} AI provider(s) - using only Google Gemini")
+        logger.info(f"Initialized {len(self.providers)} AI provider(s) - primary: Claude 4.5 Sonnet")
     
     async def paraphrase(
         self,
@@ -192,8 +242,8 @@ Provide ONLY the refined version, without any explanations.
         """Generate paraphrase candidates from multiple AI providers"""
         candidates = []
         
-        # Prepare prompt
-        prompt = self.generation_prompt_template.format(text=text)
+        # Prepare prompt - replace {{TEXT}} placeholder with actual text
+        prompt = self.generation_prompt_template.replace("{{TEXT}}", text)
         
         # Create tasks for parallel execution
         tasks = []
@@ -229,17 +279,34 @@ Provide ONLY the refined version, without any explanations.
     ) -> Optional[ParaphraseCandidate]:
         """Generate a single candidate with retry logic"""
         try:
+            # Use Claude-specific parameters for better paraphrasing
+            # Higher max_tokens (20000) and temperature (1.0) for more creative paraphrasing
+            if provider.name == "Anthropic":
+                temperature = 1.0
+                max_tokens = 20000
+            else:
+                temperature = settings.ai_temperature
+                max_tokens = settings.ai_max_tokens
+            
             paraphrased = await provider.generate(
                 prompt=prompt,
-                temperature=settings.ai_temperature,
-                max_tokens=settings.ai_max_tokens
+                temperature=temperature,
+                max_tokens=max_tokens
             )
             
             if paraphrased and paraphrased.strip():
+                # Extract text from <paraphrase> tags if present
+                paraphrase_match = re.search(r'<paraphrase>(.*?)</paraphrase>', paraphrased, re.DOTALL)
+                if paraphrase_match:
+                    paraphrased = paraphrase_match.group(1).strip()
+                else:
+                    # If no tags, use the whole response (for backward compatibility)
+                    paraphrased = paraphrased.strip()
+                
                 return ParaphraseCandidate(
                     provider=provider.name,
                     original_text=original_text,
-                    paraphrased_text=paraphrased.strip(),
+                    paraphrased_text=paraphrased,
                     metadata={"model": provider.model}
                 )
             
